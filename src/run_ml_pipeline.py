@@ -1,0 +1,297 @@
+"""
+Script completo de ejemplo: Pipeline ETL + ML con XGBoost + SHAP
+
+Este script demuestra el flujo completo desde datos raw en MongoDB
+hasta predicciones interpretables con SHAP.
+"""
+
+import sys
+import os
+import logging
+from pathlib import Path
+
+# Añadir ruta del proyecto
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from ml.etl_processor import FEBDataETL
+from ml.xgboost_model import PlayerPerformanceModel
+from database.sqlite_schema import SQLiteSchemaManager
+
+
+# Configurar logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+
+
+def paso_1_crear_esquema():
+    """Paso 1: Crear esquema de base de datos SQLite."""
+    print("\n" + "="*70)
+    print("PASO 1: CREACIÓN DE ESQUEMA SQLITE")
+    print("="*70)
+    
+    schema_manager = SQLiteSchemaManager("scouting_feb.db")
+    success = schema_manager.create_database()
+    
+    if success:
+        print("✓ Esquema creado exitosamente")
+        schema_manager.print_schema_summary()
+    else:
+        print("✗ Error creando esquema")
+        return False
+    
+    return True
+
+
+def paso_2_ejecutar_etl(limit=None):
+    """Paso 2: Ejecutar proceso ETL de MongoDB a SQLite."""
+    print("\n" + "="*70)
+    print("PASO 2: PROCESO ETL (MongoDB → SQLite)")
+    print("="*70)
+    
+    try:
+        etl = FEBDataETL(
+            mongodb_uri="mongodb://localhost:27017/",
+            mongodb_db="scouting_feb",
+            sqlite_path="scouting_feb.db"
+        )
+        
+        # Ejecutar ETL completo
+        etl.run_full_etl(limit=limit)
+        
+        print("✓ ETL completado exitosamente")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error en ETL: {e}", exc_info=True)
+        return False
+
+
+def paso_3_entrenar_modelos():
+    """Paso 3: Entrenar modelos de Machine Learning."""
+    print("\n" + "="*70)
+    print("PASO 3: ENTRENAMIENTO DE MODELOS XGBOOST")
+    print("="*70)
+    
+    try:
+        # Crear directorio para modelos
+        Path("models").mkdir(exist_ok=True)
+        
+        model = PlayerPerformanceModel(
+            db_path="scouting_feb.db",
+            model_dir="models"
+        )
+        
+        # Entrenar todos los modelos
+        results = model.train_all_models(min_games=5)
+        
+        print("\n" + "-"*70)
+        print("RESULTADOS DEL ENTRENAMIENTO")
+        print("-"*70)
+        
+        for model_name, result in results.items():
+            metrics = result['metrics']
+            print(f"\n{model_name.upper()}")
+            print(f"  Train RMSE: {metrics['train']['rmse']:.2f}")
+            print(f"  Train R²:   {metrics['train']['r2']:.3f}")
+            print(f"  Test RMSE:  {metrics['test']['rmse']:.2f}")
+            print(f"  Test R²:    {metrics['test']['r2']:.3f}")
+            print(f"  Test MAE:   {metrics['test']['mae']:.2f}")
+        
+        return model, results
+        
+    except Exception as e:
+        logger.error(f"Error entrenando modelos: {e}", exc_info=True)
+        return None, None
+
+
+def paso_4_analisis_shap(model):
+    """Paso 4: Análisis de interpretabilidad con SHAP."""
+    print("\n" + "="*70)
+    print("PASO 4: ANÁLISIS DE INTERPRETABILIDAD (SHAP)")
+    print("="*70)
+    
+    try:
+        for model_name in model.models.keys():
+            print(f"\n--- {model_name} ---")
+            
+            # Obtener importancia de características
+            importance_df = model.get_feature_importance(model_name)
+            
+            print("\nTop 10 características más importantes (SHAP):")
+            print(importance_df[['feature', 'shap_importance']].head(10).to_string(index=False))
+            
+            # Generar gráfico SHAP
+            output_path = f"models/{model_name}_shap_summary.png"
+            print(f"\nGenerando gráfico SHAP: {output_path}")
+            model.plot_shap_summary(model_name, num_samples=100, save_path=output_path)
+            print(f"✓ Gráfico guardado")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error en análisis SHAP: {e}", exc_info=True)
+        return False
+
+
+def paso_5_hacer_predicciones(model):
+    """Paso 5: Hacer predicciones de ejemplo."""
+    print("\n" + "="*70)
+    print("PASO 5: PREDICCIONES DE EJEMPLO")
+    print("="*70)
+    
+    try:
+        import sqlite3
+        
+        conn = sqlite3.connect("scouting_feb.db")
+        cursor = conn.cursor()
+        
+        # Obtener algunos jugadores de ejemplo (con más partidos)
+        cursor.execute("""
+            SELECT DISTINCT p.player_id, p.name, p.total_games
+            FROM players p
+            WHERE p.total_games >= 10
+            ORDER BY p.total_games DESC
+            LIMIT 5
+        """)
+        
+        players = cursor.fetchall()
+        conn.close()
+        
+        if not players:
+            print("⚠ No hay suficientes jugadores con >= 10 partidos para predicciones")
+            return True
+        
+        print(f"\nPredicciones para {len(players)} jugadores:")
+        print("-"*70)
+        
+        for player_id, player_name, total_games in players:
+            print(f"\n{player_name} (ID: {player_id}, {total_games} partidos)")
+            
+            # Predicción de puntos
+            pred_points = model.predict_player_performance(
+                player_id, 
+                model_name="points_predictor"
+            )
+            
+            if pred_points:
+                print(f"  📊 Predicción próximo partido: {pred_points['prediction']:.1f} puntos")
+                
+                if pred_points.get('current_avg'):
+                    print(f"  📈 Promedio actual: {pred_points['current_avg']:.1f} puntos")
+                
+                print(f"  🔍 Factores más influyentes:")
+                for i, feature in enumerate(pred_points['top_features'][:3], 1):
+                    impact_symbol = "↑" if feature['impact'] == 'positive' else "↓"
+                    print(f"     {i}. {feature['feature']}: {feature['value']:.2f} {impact_symbol}")
+            else:
+                print(f"  ⚠ No se pudo generar predicción")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error haciendo predicciones: {e}", exc_info=True)
+        return False
+
+
+def main():
+    """Función principal - ejecuta todo el pipeline."""
+    print("""
+    ╔════════════════════════════════════════════════════════════════════╗
+    ║         ScoutingFEB - Pipeline Completo: ETL + ML + SHAP          ║
+    ╚════════════════════════════════════════════════════════════════════╝
+    
+    Este script ejecuta:
+    1. Creación del esquema SQLite
+    2. Proceso ETL (MongoDB → SQLite)
+    3. Entrenamiento de modelos XGBoost
+    4. Análisis de interpretabilidad con SHAP
+    5. Predicciones de ejemplo
+    """)
+    
+    import argparse
+    parser = argparse.ArgumentParser(description='Pipeline completo ETL + ML')
+    parser.add_argument('--skip-etl', action='store_true', 
+                       help='Saltar ETL (usar datos existentes)')
+    parser.add_argument('--skip-training', action='store_true',
+                       help='Saltar entrenamiento (cargar modelos existentes)')
+    parser.add_argument('--limit', type=int,
+                       help='Limitar partidos en ETL para pruebas rápidas')
+    
+    args = parser.parse_args()
+    
+    # Verificar que existe MongoDB
+    if not args.skip_etl:
+        from pymongo import MongoClient
+        try:
+            client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+            client.server_info()
+            logger.info("✓ Conexión a MongoDB exitosa")
+            client.close()
+        except Exception as e:
+            logger.error(f"✗ No se puede conectar a MongoDB: {e}")
+            logger.error("Por favor, asegúrate de que MongoDB esté ejecutándose")
+            logger.error("Puedes usar --skip-etl si ya tienes scouting_feb.db")
+            return
+    
+    # Paso 1: Crear esquema
+    if not paso_1_crear_esquema():
+        logger.error("✗ Error en Paso 1")
+        return
+    
+    # Paso 2: ETL
+    if not args.skip_etl:
+        if not paso_2_ejecutar_etl(limit=args.limit):
+            logger.error("✗ Error en Paso 2 (ETL)")
+            return
+    else:
+        logger.info("⊗ Saltando ETL (usando datos existentes)")
+    
+    # Paso 3: Entrenar modelos
+    if not args.skip_training:
+        model, results = paso_3_entrenar_modelos()
+        if model is None:
+            logger.error("✗ Error en Paso 3 (Entrenamiento)")
+            return
+    else:
+        logger.info("⊗ Saltando entrenamiento (cargando modelos existentes)")
+        model = PlayerPerformanceModel(db_path="scouting_feb.db")
+        try:
+            model.load_model("points_predictor")
+            model.load_model("efficiency_predictor")
+        except Exception as e:
+            logger.error(f"✗ Error cargando modelos: {e}")
+            logger.error("Ejecuta sin --skip-training primero")
+            return
+    
+    # Paso 4: Análisis SHAP
+    if not paso_4_analisis_shap(model):
+        logger.warning("⚠ Advertencia en Paso 4 (SHAP)")
+    
+    # Paso 5: Predicciones
+    if not paso_5_hacer_predicciones(model):
+        logger.warning("⚠ Advertencia en Paso 5 (Predicciones)")
+    
+    print("\n" + "="*70)
+    print("✓ PIPELINE COMPLETADO EXITOSAMENTE")
+    print("="*70)
+    print(f"""
+Archivos generados:
+  • scouting_feb.db              - Base de datos SQLite
+  • models/*.joblib              - Modelos XGBoost entrenados
+  • models/*_metadata.json       - Metadata de modelos
+  • models/*_shap_summary.png    - Gráficos de interpretabilidad
+
+Próximos pasos:
+  • Analizar gráficos SHAP en models/
+  • Explorar base de datos SQLite con herramientas SQL
+  • Usar modelos para predicciones en producción
+  • Reentrenar periódicamente con nuevos datos
+    """)
+
+
+if __name__ == "__main__":
+    main()

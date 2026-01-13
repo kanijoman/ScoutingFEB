@@ -1,0 +1,15 @@
+# Core dependencies
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+pymongo>=4.6.0
+
+# Machine Learning
+xgboost>=1.7.0
+shap>=0.41.0
+scikit-learn>=1.0.0
+pandas>=1.5.0
+numpy>=1.23.0
+
+# Visualization and utilities
+matplotlib>=3.5.0
+joblib>=1.2.0
