@@ -60,8 +60,13 @@ class ZScoreNormalizer:
             Dict con {metric: (mean, std_dev)} para cada métrica
         """
         if metrics is None:
-            metrics = ['points', 'efficiency_rating', 'total_rebounds', 'assists', 
-                      'points_per_36', 'rebounds_per_36', 'assists_per_36', 'efficiency_per_36']
+            metrics = [
+                'points', 'efficiency_rating', 'total_rebounds', 'assists',
+                'true_shooting_pct', 'effective_fg_pct', 'offensive_rating',
+                'player_efficiency_rating', 'turnover_pct',
+                'offensive_rebound_pct', 'defensive_rebound_pct',
+                'free_throw_rate', 'usage_rate', 'win_shares', 'win_shares_per_36'
+            ]
         
         # Verificar caché
         cache_key = (competition_level, season)
@@ -167,7 +172,12 @@ class ZScoreNormalizer:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT points, efficiency_rating, total_rebounds, assists, usage_rate
+                SELECT 
+                    points, efficiency_rating, total_rebounds, assists,
+                    true_shooting_pct, effective_fg_pct, offensive_rating,
+                    player_efficiency_rating, turnover_pct,
+                    offensive_rebound_pct, defensive_rebound_pct,
+                    free_throw_rate, usage_rate, win_shares, win_shares_per_36
                 FROM player_game_stats
                 WHERE stat_id = ?
             """, (stat_id,))
@@ -177,7 +187,9 @@ class ZScoreNormalizer:
                 logger.error(f"No se encontró stat_id={stat_id}")
                 return {}
             
-            points, efficiency, rebounds, assists, usage = row
+            (points, efficiency, rebounds, assists,
+             ts_pct, efg_pct, oer, per, tov_pct,
+             orb_pct, drb_pct, ftr, usage, ws, ws_36) = row
         
         # Calcular Z-Scores
         z_scores = {}
@@ -198,9 +210,30 @@ class ZScoreNormalizer:
             mean, std = context_stats['assists']
             z_scores['z_assists'] = self.calculate_zscore(assists, mean, std)
         
+        # Métricas avanzadas
+        if 'offensive_rating' in context_stats and oer is not None:
+            mean, std = context_stats['offensive_rating']
+            z_scores['z_offensive_rating'] = self.calculate_zscore(oer, mean, std)
+        
+        if 'true_shooting_pct' in context_stats and ts_pct is not None:
+            mean, std = context_stats['true_shooting_pct']
+            z_scores['z_true_shooting_pct'] = self.calculate_zscore(ts_pct, mean, std)
+        
+        if 'player_efficiency_rating' in context_stats and per is not None:
+            mean, std = context_stats['player_efficiency_rating']
+            z_scores['z_player_efficiency_rating'] = self.calculate_zscore(per, mean, std)
+        
+        if 'turnover_pct' in context_stats and tov_pct is not None:
+            mean, std = context_stats['turnover_pct']
+            z_scores['z_turnover_pct'] = self.calculate_zscore(tov_pct, mean, std)
+        
         if 'usage_rate' in context_stats and usage is not None:
-            mean, std = context_stats.get('usage_rate', (0, 1))
+            mean, std = context_stats['usage_rate']
             z_scores['z_usage'] = self.calculate_zscore(usage, mean, std)
+        
+        if 'win_shares_per_36' in context_stats and ws_36 is not None:
+            mean, std = context_stats['win_shares_per_36']
+            z_scores['z_win_shares_per_36'] = self.calculate_zscore(ws_36, mean, std)
         
         return z_scores
     
@@ -268,8 +301,12 @@ class ZScoreNormalizer:
             
             # Obtener todos los stat_ids del contexto
             cursor.execute("""
-                SELECT pgs.stat_id, pgs.points, pgs.efficiency_rating, 
-                       pgs.total_rebounds, pgs.assists, pgs.usage_rate
+                SELECT 
+                    pgs.stat_id, pgs.points, pgs.efficiency_rating,
+                    pgs.total_rebounds, pgs.assists,
+                    pgs.true_shooting_pct, pgs.effective_fg_pct, pgs.offensive_rating,
+                    pgs.player_efficiency_rating, pgs.turnover_pct,
+                    pgs.usage_rate, pgs.win_shares_per_36
                 FROM player_game_stats pgs
                 JOIN games g ON pgs.game_id = g.game_id
                 JOIN competitions c ON g.competition_id = c.competition_id
@@ -282,14 +319,14 @@ class ZScoreNormalizer:
             rows = cursor.fetchall()
             
             for row in rows:
-                stat_id, points, efficiency, rebounds, assists, usage = row
+                (stat_id, points, efficiency, rebounds, assists,
+                 ts_pct, efg_pct, oer, per, tov_pct, usage, ws_36) = row
                 
-                # Calcular Z-Scores
+                # Calcular Z-Scores básicos
                 z_points = None
                 z_efficiency = None
                 z_rebounds = None
                 z_assists = None
-                z_usage = None
                 
                 if 'points' in context_stats:
                     mean, std = context_stats['points']
@@ -307,9 +344,37 @@ class ZScoreNormalizer:
                     mean, std = context_stats['assists']
                     z_assists = self.calculate_zscore(assists, mean, std)
                 
+                # Calcular Z-Scores de métricas avanzadas
+                z_oer = None
+                z_ts_pct = None
+                z_per = None
+                z_tov_pct = None
+                z_usage = None
+                z_ws_36 = None
+                
+                if oer is not None and 'offensive_rating' in context_stats:
+                    mean, std = context_stats['offensive_rating']
+                    z_oer = self.calculate_zscore(oer, mean, std)
+                
+                if ts_pct is not None and 'true_shooting_pct' in context_stats:
+                    mean, std = context_stats['true_shooting_pct']
+                    z_ts_pct = self.calculate_zscore(ts_pct, mean, std)
+                
+                if per is not None and 'player_efficiency_rating' in context_stats:
+                    mean, std = context_stats['player_efficiency_rating']
+                    z_per = self.calculate_zscore(per, mean, std)
+                
+                if tov_pct is not None and 'turnover_pct' in context_stats:
+                    mean, std = context_stats['turnover_pct']
+                    z_tov_pct = self.calculate_zscore(tov_pct, mean, std)
+                
                 if usage is not None and 'usage_rate' in context_stats:
                     mean, std = context_stats['usage_rate']
                     z_usage = self.calculate_zscore(usage, mean, std)
+                
+                if ws_36 is not None and 'win_shares_per_36' in context_stats:
+                    mean, std = context_stats['win_shares_per_36']
+                    z_ws_36 = self.calculate_zscore(ws_36, mean, std)
                 
                 # Actualizar en base de datos
                 cursor.execute("""
@@ -318,9 +383,16 @@ class ZScoreNormalizer:
                         z_efficiency = ?,
                         z_rebounds = ?,
                         z_assists = ?,
-                        z_usage = ?
+                        z_offensive_rating = ?,
+                        z_true_shooting_pct = ?,
+                        z_player_efficiency_rating = ?,
+                        z_turnover_pct = ?,
+                        z_usage = ?,
+                        z_win_shares_per_36 = ?
                     WHERE stat_id = ?
-                """, (z_points, z_efficiency, z_rebounds, z_assists, z_usage, stat_id))
+                """, (z_points, z_efficiency, z_rebounds, z_assists,
+                      z_oer, z_ts_pct, z_per, z_tov_pct, z_usage, z_ws_36,
+                      stat_id))
                 
                 updated_count += 1
             

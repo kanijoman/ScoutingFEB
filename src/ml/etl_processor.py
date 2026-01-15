@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from database.mongodb_client import MongoDBClient
 from database.sqlite_schema import SQLiteSchemaManager
 from ml.normalization import ZScoreNormalizer, initialize_competition_levels
+from ml.advanced_stats import calculate_all_advanced_stats
 import numpy as np
 
 
@@ -84,6 +85,45 @@ class FEBDataETL:
     # TRANSFORM - Transformación de datos
     # =========================================================================
     
+    def calculate_match_weight(self, group_name: str) -> float:
+        """
+        Calcular el peso de un partido según su fase/importancia.
+        
+        Partidos más importantes (play-offs, finales, copas) reciben mayor peso
+        para reflejar que el rendimiento en estos partidos es más significativo.
+        
+        Args:
+            group_name: Nombre del grupo/fase del partido
+            
+        Returns:
+            Peso del partido (1.0 = regular, >1.0 = importante)
+        """
+        if not group_name:
+            return 1.0
+        
+        group_lower = group_name.lower()
+        
+        # Orden importante: comprobar términos más específicos primero
+        
+        # Supercopa: peso moderado (1.2x) - ANTES de Copa para evitar match con "copa"
+        if any(keyword in group_lower for keyword in ["supercopa", "super copa"]):
+            return 1.2
+        
+        # Finales: máximo peso (1.5x) - Buscar "final" que no sea parte de "semifinal" o "cuartos de final"
+        if "final" in group_lower and not any(prefix in group_lower for prefix in ["semifinal", "cuartos", "octavos"]):
+            return 1.5
+        
+        # Play-offs: alto peso (1.4x) - Incluye semifinales, cuartos, etc.
+        if any(keyword in group_lower for keyword in ["play", "playoff", "eliminatoria", "semifinal", "cuartos", "octavos"]):
+            return 1.4
+        
+        # Copa: alto peso (1.3x)
+        if any(keyword in group_lower for keyword in ["copa"]):
+            return 1.3
+        
+        # Liga regular: peso base
+        return 1.0
+    
     def transform_game_data(self, mongo_game: Dict) -> Dict:
         """
         Transformar un partido de MongoDB al formato SQLite.
@@ -98,15 +138,18 @@ class FEBDataETL:
         boxscore = mongo_game.get("BOXSCORE", {})
         
         # Extraer información básica del partido
+        group_name = header.get("group", "")
+        
         game_data = {
             "game_id": int(header.get("game_code", 0)),
             "season": header.get("season", ""),
-            "group_name": header.get("group", ""),
+            "group_name": group_name,
             "game_date": header.get("starttime", ""),
             "venue": header.get("location", ""),
             "attendance": None,  # Si está disponible en los datos
             "competition_name": header.get("competition_name", ""),
-            "gender": header.get("gender", "masc")
+            "gender": header.get("gender", "masc"),
+            "match_weight": self.calculate_match_weight(group_name)
         }
         
         # Extraer información de equipos
@@ -209,6 +252,27 @@ class FEBDataETL:
             except:
                 pass
         
+        # Preparar datos para calcular métricas avanzadas
+        stats_for_advanced = {
+            'pts': safe_int(player.get("pts", 0)),
+            'fgm': field_goals_made,
+            'fga': field_goals_att,
+            'fg3m': three_made,
+            'ftm': ft_made,
+            'fta': ft_att,
+            'orb': safe_int(player.get("offReb", 0)),
+            'drb': safe_int(player.get("defReb", 0)),
+            'reb': safe_int(player.get("totReb", 0)),
+            'ast': safe_int(player.get("ass", 0)),
+            'tov': safe_int(player.get("steals", 0)),  # Pérdidas
+            'stl': safe_int(player.get("stl", 0)),
+            'blk': safe_int(player.get("blocks", 0)),
+            'minutes': minutes_played
+        }
+        
+        # Calcular métricas avanzadas
+        advanced_stats = calculate_all_advanced_stats(stats_for_advanced)
+        
         return {
             "dorsal": player.get("dorsal", ""),
             "name": player.get("name", "").strip(),
@@ -252,19 +316,23 @@ class FEBDataETL:
             "personal_fouls": safe_int(player.get("fouls", 0)),
             "fouls_received": safe_int(player.get("foulsRec", 0)),
             
-            # Métricas avanzadas
+            # Métricas legacy
             "plus_minus": safe_int(player.get("plusMinus", 0)),
             "efficiency_rating": safe_float(player.get("val", 0)),
             
-            # Calcular métricas per-36 (pace-adjusted)
-            # Normalizan el rendimiento eliminando el efecto de minutos jugados
-            "points_per_36": (safe_int(player.get("pts", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "rebounds_per_36": (safe_int(player.get("totReb", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "assists_per_36": (safe_int(player.get("ass", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "steals_per_36": (safe_int(player.get("stl", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "blocks_per_36": (safe_int(player.get("blocks", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "turnovers_per_36": (safe_int(player.get("steals", 0)) / minutes_played * 36) if minutes_played > 0 else 0,
-            "efficiency_per_36": (safe_float(player.get("val", 0)) / minutes_played * 36) if minutes_played > 0 else 0
+            # Métricas avanzadas
+            "true_shooting_pct": advanced_stats.get('true_shooting_pct'),
+            "effective_fg_pct": advanced_stats.get('effective_fg_pct'),
+            "offensive_rating": advanced_stats.get('offensive_rating'),
+            "player_efficiency_rating": advanced_stats.get('player_efficiency_rating'),
+            "turnover_pct": advanced_stats.get('turnover_pct'),
+            "offensive_rebound_pct": advanced_stats.get('offensive_rebound_pct'),
+            "defensive_rebound_pct": advanced_stats.get('defensive_rebound_pct'),
+            "free_throw_rate": advanced_stats.get('free_throw_rate'),
+            "assist_to_turnover_ratio": advanced_stats.get('assist_to_turnover_ratio'),
+            "usage_rate": advanced_stats.get('usage_rate'),
+            "win_shares": advanced_stats.get('win_shares'),
+            "win_shares_per_36": advanced_stats.get('win_shares_per_36')
         }
     
     # =========================================================================
@@ -410,8 +478,8 @@ class FEBDataETL:
             cursor.execute("""
                 INSERT OR REPLACE INTO games (
                     game_id, competition_id, season, group_name, game_date,
-                    home_team_id, away_team_id, home_score, away_score, score_diff, venue
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    home_team_id, away_team_id, home_score, away_score, score_diff, venue, match_weight
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 game_data["game_id"],
                 comp_id,
@@ -423,7 +491,8 @@ class FEBDataETL:
                 game_data["home_score"],
                 game_data["away_score"],
                 game_data["score_diff"],
-                game_data["venue"]
+                game_data["venue"],
+                game_data["match_weight"]
             ))
             
             # 4. Cargar estadísticas de jugadores
@@ -454,13 +523,16 @@ class FEBDataETL:
                         assists, turnovers, steals,
                         blocks, blocks_received, personal_fouls, fouls_received,
                         plus_minus, efficiency_rating,
-                        points_per_36, rebounds_per_36, assists_per_36,
-                        steals_per_36, blocks_per_36, turnovers_per_36, efficiency_per_36,
+                        true_shooting_pct, effective_fg_pct, offensive_rating,
+                        player_efficiency_rating, turnover_pct,
+                        offensive_rebound_pct, defensive_rebound_pct,
+                        free_throw_rate, assist_to_turnover_ratio, usage_rate,
+                        win_shares, win_shares_per_36,
                         team_won
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                 """, (
                     game_data["game_id"], player_id, team_id,
@@ -481,10 +553,12 @@ class FEBDataETL:
                     player_stat["blocks"], player_stat["blocks_received"],
                     player_stat["personal_fouls"], player_stat["fouls_received"],
                     player_stat["plus_minus"], player_stat["efficiency_rating"],
-                    player_stat["points_per_36"], player_stat["rebounds_per_36"],
-                    player_stat["assists_per_36"], player_stat["steals_per_36"],
-                    player_stat["blocks_per_36"], player_stat["turnovers_per_36"],
-                    player_stat["efficiency_per_36"],
+                    player_stat["true_shooting_pct"], player_stat["effective_fg_pct"],
+                    player_stat["offensive_rating"], player_stat["player_efficiency_rating"],
+                    player_stat["turnover_pct"], player_stat["offensive_rebound_pct"],
+                    player_stat["defensive_rebound_pct"], player_stat["free_throw_rate"],
+                    player_stat["assist_to_turnover_ratio"], player_stat["usage_rate"],
+                    player_stat["win_shares"], player_stat["win_shares_per_36"],
                     player_stat["team_won"]
                 ))
             
@@ -542,11 +616,16 @@ class FEBDataETL:
         assists = np.array([s["assists"] for s in stats])
         wins = np.array([s["team_won"] for s in stats])
         
-        # Métricas per-36
-        points_per_36 = np.array([s["points_per_36"] for s in stats])
-        rebounds_per_36 = np.array([s["rebounds_per_36"] for s in stats])
-        assists_per_36 = np.array([s["assists_per_36"] for s in stats])
-        efficiency_per_36 = np.array([s["efficiency_per_36"] for s in stats])
+        # Métricas avanzadas
+        ts_pct = np.array([s["true_shooting_pct"] if s["true_shooting_pct"] is not None else 0 for s in stats])
+        efg_pct = np.array([s["effective_fg_pct"] if s["effective_fg_pct"] is not None else 0 for s in stats])
+        oer = np.array([s["offensive_rating"] if s["offensive_rating"] is not None else 0 for s in stats])
+        per = np.array([s["player_efficiency_rating"] if s["player_efficiency_rating"] is not None else 0 for s in stats])
+        tov_pct = np.array([s["turnover_pct"] if s["turnover_pct"] is not None else 0 for s in stats])
+        orb_pct = np.array([s["offensive_rebound_pct"] if s["offensive_rebound_pct"] is not None else 0 for s in stats])
+        drb_pct = np.array([s["defensive_rebound_pct"] if s["defensive_rebound_pct"] is not None else 0 for s in stats])
+        ws = np.array([s["win_shares"] if s["win_shares"] is not None else 0 for s in stats])
+        ws_36 = np.array([s["win_shares_per_36"] if s["win_shares_per_36"] is not None else 0 for s in stats])
         
         # Calcular promedios
         avg_minutes = np.mean(minutes)
@@ -574,11 +653,16 @@ class FEBDataETL:
         # Win percentage
         win_pct = np.mean(wins) * 100
         
-        # Promedios per-36
-        avg_points_per_36 = np.mean(points_per_36[points_per_36 > 0])
-        avg_rebounds_per_36 = np.mean(rebounds_per_36[rebounds_per_36 > 0])
-        avg_assists_per_36 = np.mean(assists_per_36[assists_per_36 > 0])
-        avg_efficiency_per_36 = np.mean(efficiency_per_36[efficiency_per_36 > 0])
+        # Promedios de métricas avanzadas
+        avg_ts_pct = np.mean(ts_pct[ts_pct > 0]) if np.any(ts_pct > 0) else None
+        avg_efg_pct = np.mean(efg_pct[efg_pct > 0]) if np.any(efg_pct > 0) else None
+        avg_oer = np.mean(oer[oer > 0]) if np.any(oer > 0) else None
+        avg_per = np.mean(per[per != 0]) if np.any(per != 0) else None
+        avg_tov_pct = np.mean(tov_pct[tov_pct > 0]) if np.any(tov_pct > 0) else None
+        avg_orb_pct = np.mean(orb_pct[orb_pct > 0]) if np.any(orb_pct > 0) else None
+        avg_drb_pct = np.mean(drb_pct[drb_pct > 0]) if np.any(drb_pct > 0) else None
+        total_ws = np.sum(ws)
+        avg_ws_36 = np.mean(ws_36[ws_36 > 0]) if np.any(ws_36 > 0) else None
         
         # Fechas
         date_from = stats[0]["game_date"]
@@ -595,9 +679,12 @@ class FEBDataETL:
                 total_points, total_rebounds, total_assists,
                 std_points, std_efficiency,
                 trend_points, trend_efficiency,
-                avg_points_per_36, avg_rebounds_per_36, avg_assists_per_36, avg_efficiency_per_36,
+                avg_true_shooting_pct, avg_effective_fg_pct, avg_offensive_rating,
+                avg_player_efficiency_rating, avg_turnover_pct,
+                avg_offensive_rebound_pct, avg_defensive_rebound_pct,
+                total_win_shares, avg_win_shares_per_36,
                 win_percentage
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             player_id, season, competition_id, games_played,
             date_from, date_to,
@@ -607,8 +694,15 @@ class FEBDataETL:
             int(np.sum(points)), int(np.sum(rebounds)), int(np.sum(assists)),
             float(std_points), float(std_efficiency),
             float(trend_points), float(trend_efficiency),
-            float(avg_points_per_36), float(avg_rebounds_per_36), 
-            float(avg_assists_per_36), float(avg_efficiency_per_36),
+            float(avg_ts_pct) if avg_ts_pct is not None else None,
+            float(avg_efg_pct) if avg_efg_pct is not None else None,
+            float(avg_oer) if avg_oer is not None else None,
+            float(avg_per) if avg_per is not None else None,
+            float(avg_tov_pct) if avg_tov_pct is not None else None,
+            float(avg_orb_pct) if avg_orb_pct is not None else None,
+            float(avg_drb_pct) if avg_drb_pct is not None else None,
+            float(total_ws),
+            float(avg_ws_36) if avg_ws_36 is not None else None,
             float(win_pct)
         ))
     

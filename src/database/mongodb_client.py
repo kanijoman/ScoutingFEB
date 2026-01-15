@@ -313,6 +313,37 @@ class MongoDBClient:
             self.logger.error(f"Error retrieving processed matches: {e}")
             return []
 
+    def get_all_processed_matches_by_season(self, competition_name: str, season: str,
+                                          collection_name: str) -> List[str]:
+        """
+        Get all match codes already processed for a competition/season (all groups).
+
+        Args:
+            competition_name: Name of the competition
+            season: Season identifier
+            collection_name: Collection name
+
+        Returns:
+            List of match codes already in the database
+        """
+        try:
+            collection = self.get_collection(collection_name)
+            # Query for matches with matching metadata (no group filter)
+            query = {
+                "HEADER.competition_name": competition_name,
+                "HEADER.season": season
+            }
+            
+            # Get only the game_code field
+            cursor = collection.find(query, {"HEADER.game_code": 1})
+            match_codes = [str(doc.get("HEADER", {}).get("game_code", "")) 
+                          for doc in cursor if doc.get("HEADER", {}).get("game_code")]
+            
+            return match_codes
+        except PyMongoError as e:
+            self.logger.error(f"Error retrieving processed matches: {e}")
+            return []
+
     def close(self):
         """Close the MongoDB connection."""
         self.client.close()

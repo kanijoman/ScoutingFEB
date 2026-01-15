@@ -122,10 +122,22 @@ class TokenManager:
 
     def _extract_token_from_inputs(self, soup: BeautifulSoup) -> Optional[str]:
         """Extract token from hidden input fields."""
+        # Try specific known token field IDs first
+        token_field_ids = ["_ctl0_token", "contentToken", "token"]
+        for field_id in token_field_ids:
+            input_tag = soup.find("input", id=field_id)
+            if input_tag:
+                value = input_tag.get("value", "")
+                if value and value.startswith("eyJ"):  # JWT token
+                    print(f"[TokenManager] Found token in input#{field_id}")
+                    return value
+        
+        # Fallback: search all hidden inputs for JWT tokens
         for input_tag in soup.find_all("input", type="hidden"):
             value = input_tag.get("value", "")
-            # JWT tokens typically start with "eyJhbGci" (base64 encoded {"alg")
-            if value.startswith("eyJhbGci"):
+            # JWT tokens typically start with "eyJ" (base64 encoded JSON)
+            if value.startswith("eyJ") and len(value) > 100:
+                print(f"[TokenManager] Found JWT token in hidden input")
                 return value
         return None
 

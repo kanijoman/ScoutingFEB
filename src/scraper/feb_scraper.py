@@ -184,17 +184,22 @@ class FEBWebScraper:
     def get_matches(self, season_value: str, group_value: str, year: str,
                    session: requests.Session, url: Optional[str] = None) -> List[str]:
         """
-        Fetch match codes for the given season and group.
+        Fetch match codes for the given season.
+        
+        Note: The group_value parameter is ignored because FEB's website shows
+        all matches for all groups on the same page, and attempting to filter
+        by group via POST requests returns empty data. Instead, we extract all
+        matches and the group information is determined from each match's API data.
 
         Args:
             season_value: Season value
-            group_value: Group value
+            group_value: Group value (ignored, kept for backwards compatibility)
             year: Season year
             session: Requests session
             url: Optional URL for the competition (if not provided, uses BASE_URL)
 
         Returns:
-            List of match codes
+            List of match codes for the season (all groups)
         """
         # Use provided URL or fall back to hardcoded BASE_URL
         if url is None:
@@ -208,41 +213,24 @@ class FEBWebScraper:
 
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Check if the initial page already has the correct season and group selected
+        # Check if we need to select a season
         season_dropdown = soup.find("select", {"id": SEASON_DROPDOWN_ID})
-        group_dropdown = soup.find("select", {"id": GROUP_DROPDOWN_ID})
-
         current_season = None
-        current_group = None
 
         if season_dropdown:
             selected_option = season_dropdown.find("option", selected=True)
             if selected_option:
                 current_season = selected_option.get("value")
 
-        if group_dropdown:
-            selected_option = group_dropdown.find("option", selected=True)
-            if selected_option:
-                current_group = selected_option.get("value")
+        # If the page already has the correct season selected, use it directly
+        if current_season == season_value:
+            return self._extract_match_codes(soup)
 
-        # If the page already has the correct selection, use it directly
-        if current_season == season_value and current_group == group_value:
-            matches = self._extract_match_codes(soup)
-            if matches:  # If we found matches, we're done
-                return matches
-
-        # Otherwise, need to select season and group via POST
+        # Otherwise, need to select season via POST
         hidden_fields = self.get_hidden_fields(soup)
+        soup, hidden_fields = self.select_season(session, url, season_value, hidden_fields)
 
-        # Select season (only if different from current)
-        if current_season != season_value:
-            soup, hidden_fields = self.select_season(session, url, season_value, hidden_fields)
-
-        # Select group (only if different from current)
-        if current_group != group_value:
-            soup = self.select_group(session, url, season_value, group_value, hidden_fields)
-
-        # Extract match codes
+        # Extract all match codes (all groups)
         return self._extract_match_codes(soup)
 
     def _build_form_data(self, event_target: str, hidden_fields: Dict[str, str],
@@ -283,6 +271,7 @@ class FEBWebScraper:
     def _extract_match_code_from_row(self, row) -> Optional[str]:
         """
         Extract match code from a table row.
+        Handles both played matches (class="resultado") and future matches (class="fecha").
 
         Args:
             row: BeautifulSoup table row element
@@ -290,19 +279,17 @@ class FEBWebScraper:
         Returns:
             Match code or None if not found
         """
-        # Find result cell
-        res_cell = row.find("td", class_="resultado")
-        if not res_cell:
+        # Try to find result cell (played matches) or date cell (future matches)
+        target_cell = row.find("td", class_="resultado")
+        if not target_cell:
+            target_cell = row.find("td", class_="fecha")
+        
+        if not target_cell:
             return None
 
         # Find link with match parameter
-        link = res_cell.find("a", href=re.compile(r"p=\d+"))
+        link = target_cell.find("a", href=re.compile(r"p=\d+"))
         if not link:
-            return None
-
-        # Verify it's a valid score format (e.g., "75 - 68")
-        link_text = link.get_text(strip=True)
-        if not re.match(r"^\d+\s*-\s*\d+$", link_text):
             return None
 
         # Extract match code from URL parameter
@@ -351,3 +338,82 @@ class FEBWebScraper:
                     seen_names.add(comp_name)
 
         return competitions
+
+    def get_series_links(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
+        """
+        Extract links to series/phases (Play-offs, Copa de la Reina, Supercopa, etc.)
+        from the competition page.
+
+        These appear as links with format: Series.aspx?f=xxxxx
+
+        Args:
+            soup: BeautifulSoup object of the competition page
+
+        Returns:
+            List of dicts with 'name', 'url', and 'fase_id' keys
+        """
+        series = []
+        seen_ids = set()
+
+        # Find all links to Series.aspx
+        series_links = soup.find_all("a", href=re.compile(r"Series\.aspx\?f=\d+"))
+
+        for link in series_links:
+            href = link.get("href", "")
+            text = link.get_text(strip=True)
+
+            # Extract fase ID from URL
+            match = re.search(r"f=(\d+)", href)
+            if not match:
+                continue
+
+            fase_id = match.group(1)
+
+            # Skip duplicates
+            if fase_id in seen_ids:
+                continue
+
+            seen_ids.add(fase_id)
+
+            # Make URL absolute if needed
+            if not href.startswith("http"):
+                href = "https://baloncestoenvivo.feb.es/" + href
+
+            series.append({
+                "name": text,
+                "url": href,
+                "fase_id": fase_id
+            })
+
+        return series
+
+    def get_matches_from_series(self, series_url: str) -> List[str]:
+        """
+        Extract match codes from a series/phase page (Play-offs, Copa, etc.).
+
+        Args:
+            series_url: URL of the series page (Series.aspx?f=xxxxx)
+
+        Returns:
+            List of match codes
+        """
+        response = self.web_client.get(series_url, timeout=EXTENDED_TIMEOUT)
+        if not response:
+            return []
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        matches = []
+
+        # Find all links to Partido.aspx with match parameter
+        match_links = soup.find_all("a", href=re.compile(r"Partido\.aspx\?p=\d+"))
+
+        for link in match_links:
+            href = link.get("href", "")
+            match = re.search(r"p=(\d+)", href)
+            if match:
+                match_code = match.group(1)
+                if match_code not in matches:  # Avoid duplicates
+                    matches.append(match_code)
+
+        return matches
