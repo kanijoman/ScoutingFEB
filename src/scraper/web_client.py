@@ -71,6 +71,7 @@ class WebClient:
 
     def get_with_retry(self, url: str, headers: Optional[Dict[str, str]] = None,
                        on_401: Optional[Callable[[], Optional[str]]] = None,
+                       allow_404: bool = False,
                        timeout: int = DEFAULT_TIMEOUT) -> Optional[requests.Response]:
         """
         Perform GET request with retry on 401 unauthorized.
@@ -79,6 +80,7 @@ class WebClient:
             url: URL to fetch
             headers: Optional headers
             on_401: Callback to refresh token on 401 error
+            allow_404: If True, return response even on 404 (useful for fallback logic)
             timeout: Request timeout in seconds
 
         Returns:
@@ -90,6 +92,11 @@ class WebClient:
 
         try:
             response = self.session.get(url, headers=request_headers, timeout=timeout)
+            
+            # Special handling for 404 if allowed
+            if response.status_code == 404 and allow_404:
+                return response
+            
             response.raise_for_status()
             return response
         except requests.HTTPError as e:
@@ -100,11 +107,21 @@ class WebClient:
                     request_headers["Authorization"] = f"Bearer {new_token}"
                     try:
                         response = self.session.get(url, headers=request_headers, timeout=timeout)
+                        
+                        # Special handling for 404 if allowed
+                        if response.status_code == 404 and allow_404:
+                            return response
+                        
                         response.raise_for_status()
                         return response
                     except requests.RequestException as retry_e:
                         print(f"[WebClient] Retry failed: {retry_e}")
                         return None
+            
+            # Return response with error code if it's 404 and allowed
+            if e.response.status_code == 404 and allow_404:
+                return e.response
+            
             print(f"[WebClient] HTTP error: {e}")
             return None
         except requests.RequestException as e:

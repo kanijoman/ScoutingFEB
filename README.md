@@ -34,7 +34,7 @@ ScoutingFEB/
 │   ├── main.py                         # Scraper principal
 │   ├── config.py                       # Configuración
 │   ├── utils.py                        # Utilidades
-│   ├── examples.py                     # Ejemplos de uso
+│   ├── run_scraping.py                 # Script unificado de scraping
 │   ├── examples_incremental.py         # Ejemplos sistema incremental
 │   ├── test_incremental.py             # Tests
 │   ├── run_ml_pipeline.py              # 🆕 Pipeline completo ML
@@ -153,6 +153,7 @@ Este comando ejecutará:
 - **[QUICKSTART.md](QUICKSTART.md)** - Guía rápida de inicio
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Arquitectura completa del sistema
 - **[ML_SYSTEM.md](ML_SYSTEM.md)** - Sistema de Machine Learning con XGBoost + SHAP
+- **[MATCH_WEIGHTING.md](MATCH_WEIGHTING.md)** - 🆕 Sistema de ponderación de partidos importantes
 - **[INCREMENTAL_SCRAPING.md](INCREMENTAL_SCRAPING.md)** - Sistema de scraping incremental
 
 ### Diagramas y Ejemplos
@@ -167,7 +168,20 @@ ScoutingFEB incluye un **sistema de scraping incremental** que reduce significat
 
 📖 **[Ver documentación completa del sistema incremental](INCREMENTAL_SCRAPING.md)**
 
-**Uso rápido:**
+**Uso rápido con el script unificado:**
+```powershell
+# Ejecutar el script interactivo
+python src/run_scraping.py
+
+# Menú con opciones:
+# 1. Listar competiciones
+# 2. Scraping interactivo (incremental)
+# 3. Scraping completo (re-scraping)
+# 4. Múltiples competiciones
+# 5-8. Consultas y administración
+```
+
+**Uso programático:**
 ```python
 from src.main import FEBScoutingScraper
 
@@ -182,21 +196,55 @@ stats = scraper.scrape_competition_by_name("LF2", incremental=False)
 scraper.close()
 ```
 
-**Ejemplos interactivos:**
-```powershell
-python src/examples_incremental.py
+### ⏰ Soporte para Partidos Antiguos (Pre-2019-20)
+
+ScoutingFEB incluye **soporte automático para partidos de temporadas anteriores a 2019-20**, que utilizan un formato de datos diferente (HTML embebido en lugar de API JSON).
+
+**Características:**
+- ✅ **Detección automática**: El sistema detecta automáticamente si un partido es antiguo (API devuelve 404)
+- ✅ **Fallback HTML**: Parsea automáticamente los datos del HTML de la página
+- ✅ **Datos completos**: Extrae las mismas estadísticas que los partidos modernos:
+  - Información del partido (equipos, marcador, temporada)
+  - Estadísticas detalladas de jugadores (20+ métricas)
+  - Parciales por cuarto
+  - Metadatos (árbitros, fecha, hora)
+- ✅ **Sin cambios de código**: Funciona transparentemente con la misma API
+
+**Ejemplo:**
+```python
+from src.main import FEBScoutingScraper
+
+scraper = FEBScoutingScraper()
+
+# Funciona automáticamente para partidos antiguos
+# Ejemplo: LF2 2019/2020 - SEGLE XXI 72-68 BARÇA CBS
+data = scraper.scrape_match("2098897")
+
+# Los datos incluyen un campo 'data_source' para identificar el origen
+print(data.get('data_source'))  # 'html_legacy' para partidos antiguos
+print(f"{data['home_team']} {data['home_score']}-{data['away_score']} {data['away_team']}")
+print(f"Jugadores: {len(data['players'])}")
+
+scraper.close()
 ```
+
+**Notas técnicas:**
+- El token de autenticación se obtiene del campo `_ctl0_token` en el HTML
+- Los datos se extraen del panel estático (`id="EstaticoPanel"`)
+- El campo `data_source` será `"html_legacy"` en lugar de `"api"` para identificar la fuente
+
+Ver [CHANGELOG.md](CHANGELOG.md) v0.4.3 para más detalles técnicos.
+
+---
 
 ### 1. Listar competiciones disponibles
 
 Para ver todas las competiciones FEB disponibles:
 
 ```powershell
-cd src
-python main.py
+python src/run_scraping.py
+# Selecciona opción 1
 ```
-
-Esto mostrará una lista de todas las competiciones con su género detectado automáticamente.
 
 ### 2. Scraping de una competición específica
 

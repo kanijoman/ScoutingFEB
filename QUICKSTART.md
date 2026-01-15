@@ -172,7 +172,7 @@ Algunas competiciones populares que puedes scrapear:
 - **EBA**: Liga EBA
 - Y muchas más...
 
-Para ver la lista completa, ejecuta `python main.py` o `python examples.py` (opción 1).
+Para ver la lista completa, ejecuta `python src/run_scraping.py` (opción 1).
 
 ## 🔧 Configuración Avanzada
 
@@ -242,7 +242,7 @@ Verifica que tienes permisos de escritura en el directorio `src/`.
 
 - **README.md**: Documentación completa del proyecto
 - **CHANGELOG.md**: Historial de cambios
-- **examples.py**: Más ejemplos de uso
+- **run_scraping.py**: Script unificado para scraping (incremental y completo)
 - **Logs**: Revisa `scouting_feb.log` para diagnóstico
 
 ## 🎓 Próximos Pasos
@@ -263,7 +263,7 @@ Verifica que tienes permisos de escritura en el directorio `src/`.
 ## 📞 ¿Necesitas Ayuda?
 
 - Revisa el archivo `README.md` para más detalles
-- Consulta los ejemplos en `examples.py`
+- Consulta el script unificado en `src/run_scraping.py`
 - Revisa los logs en `scouting_feb.log`
 
 ---

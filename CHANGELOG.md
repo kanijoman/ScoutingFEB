@@ -2,6 +2,296 @@
 
 Todos los cambios notables en este proyecto serán documentados en este archivo.
 
+## [0.5.2] - 2026-01-14
+
+### 🔍 Mejoras en Detección de Partidos Futuros
+
+**Problema Identificado**
+- Durante scraping fresco, 96% de fallos (326/339 partidos)
+- Partidos de temporada 2025/2026 sin datos disponibles (futuros/no jugados)
+- API no responde y HTML no contiene tablas de estadísticas
+- Logs poco informativos: todos marcados como "Failed to fetch data"
+
+**Mejoras Implementadas**
+- **Legacy Parser**: Pre-chequeo rápido de tablas de jugadores antes de procesar
+  - Detecta ausencia de datos de jugadores (indicador de partido futuro)
+  - Mensaje específico: "No player data found (likely future/unplayed)"
+  - Evita procesamiento innecesario de partidos sin datos
+  
+- **API Client**: Logs más descriptivos
+  - Diferencia entre "404" y "no response" del API
+  - Mejor trazabilidad del fallback HTML
+  
+- **Herramientas de Diagnóstico**
+  - `diagnose_match.py`: Diagnóstico detallado de un partido específico
+  - `test_single_match.py`: Test de scraping de partidos individuales
+  - `find_match_code.py`: Búsqueda de códigos de partido en MongoDB
+
+**Archivos Modificados**
+- `src/scraper/legacy_parser.py`: Pre-validación de datos de jugadores (líneas 11-35)
+- `src/scraper/api_client.py`: Logs mejorados de fallback API→HTML
+- `diagnose_match.py`: Corregido error en cleanup (sin método close)
+
+**Resultado Esperado**
+- Logs más claros diferenciando: partidos futuros vs errores reales
+- Mejor comprensión de por qué fallan ciertos partidos
+- Herramientas de diagnóstico para investigación rápida
+
+---
+
+## [0.5.1] - 2026-01-14
+
+### 🧹 Limpieza del Proyecto
+
+**Eliminación de Archivos de Test y Análisis**
+- Eliminados todos los archivos de prueba, análisis y debug temporales
+- Estructura limpia enfocada en código de producción
+- Añadido `clean_database.py` para limpieza de MongoDB antes de re-scraping
+- Añadido `RESCRAPING_GUIDE.md` con guía completa de re-scraping
+
+**Archivos Eliminados**
+- 27 archivos de test (test_*.py, scrape_*_test.py)
+- Archivos de análisis (analyze_*.py, investigate_*.py)
+- Archivos de debug (debug_*.py, check_*.py)
+- Archivos de verificación temporal (verify_*.py)
+- Scripts de limpieza/fix temporal (clean_*.py, fix_*.py)
+
+**Estructura Final**
+- `src/` - Código principal organizado en módulos
+  - `scraper/` - Web scraping y API
+  - `database/` - MongoDB y SQLite
+  - `ml/` - Machine Learning (ETL, XGBoost, normalización)
+- `clean_database.py` - Script de utilidad para limpieza
+- Documentación completa en archivos .md
+
+---
+
+## [0.5.0] - 2026-01-14
+
+### ⚡ Nueva Funcionalidad: Sistema de Ponderación de Partidos
+
+**Motivación**
+- El rendimiento en partidos importantes (finales, play-offs, copas) indica mejor la capacidad de un jugador bajo presión
+- Los partidos de liga regular y partidos decisivos deben tener diferente peso en el análisis ML
+
+**Implementación**
+- **Schema SQLite**: Añadido campo `match_weight` a tabla `games` (default 1.0)
+- **ETL Processor**: Nueva función `calculate_match_weight()` que asigna pesos según tipo de partido:
+  - 🏆 **Finales**: 1.5x (máximo peso)
+  - ⭐ **Play-offs**: 1.4x (cuartos, semifinales, octavos)
+  - 🏅 **Copa**: 1.3x (Copa del Rey/Reina)
+  - 🎖️ **Supercopa**: 1.2x
+  - 📊 **Liga Regular**: 1.0x (baseline)
+
+**Aplicaciones ML**
+- Agregados ponderados de estadísticas de jugadores
+- Identificación de jugadores "clutch" (mejoran en momentos clave)
+- Detección de jugadores que bajan bajo presión
+- Ajuste de predicciones según contexto del partido
+
+**Archivos Modificados**
+- `src/database/sqlite_schema.py`: Campo `match_weight` en tabla `games`
+- `src/ml/etl_processor.py`: 
+  - Función `calculate_match_weight()` (líneas 87-128)
+  - Modificado `transform_game_data()` para calcular peso
+  - Modificado `load_game()` para almacenar peso
+
+**Archivos Nuevos**
+- `MATCH_WEIGHTING.md`: Documentación completa del sistema
+- `test_match_weights.py`: Suite de pruebas (11 test cases)
+- `test_etl_weights.py`: Prueba de integración ETL completa
+- `migrate_add_weights.py`: Script de migración para bases de datos existentes
+
+**Testing**
+- ✓ 11 casos de prueba pasan correctamente
+- ✓ Integración ETL verificada (50 partidos procesados)
+- ✓ Pesos calculados y almacenados correctamente en SQLite
+
+---
+
+## [0.4.4] - 2026-01-13
+
+### 🐛 Correcciones
+
+**Extracción de encuentros futuros**
+- **Problema**: Solo se extraían partidos ya jugados (con clase `resultado`)
+- **Solución**: Ahora también se extraen partidos futuros (con clase `fecha`)
+- **Impacto**: Se detectan correctamente TODOS los encuentros de una jornada/grupo
+
+**Detección de grupos después de cambiar temporada**
+- **Problema**: Después de seleccionar una temporada mediante POST, el HTML de respuesta no contiene los dropdowns, causando que no se extraigan los partidos
+- **Solución**: Se intenta extraer partidos inmediatamente después de seleccionar temporada
+- **Impacto**: Ahora funciona correctamente con competiciones que tienen un único grupo (ej: LF Endesa 2024/2025 con 240 encuentros)
+
+**Archivos modificados:**
+- `src/scraper/feb_scraper.py`:
+  - `_extract_match_code_from_row()`: Busca en celdas con clase `resultado` O `fecha`
+  - `get_matches()`: Extrae partidos inmediatamente después de `select_season()`
+
+---
+
+## [0.4.3] - 2026-01-13
+
+### Soporte para Partidos Antiguos (Pre-2019-20) 🕰️
+
+#### Problema Identificado
+- Partidos de temporadas 2019-20 y anteriores usan endpoint API diferente
+- El endpoint actual (`https://intrafeb.feb.es/LiveStats.API/api/v1/BoxScore/{match_code}`) retorna 404 para partidos antiguos
+- Los datos SÍ existen, pero están en formato HTML embebido en la página
+
+#### Solución Implementada
+
+**1. Token Manager Mejorado** (`token_manager.py`)
+- Búsqueda ampliada de tokens en inputs hidden
+- Soporte para múltiples IDs de campos: `_ctl0_token`, `contentToken`, `token`
+- Detección automática de JWT tokens (empiezan con `eyJ`)
+
+**2. Nuevo Legacy HTML Parser** (`legacy_parser.py`)
+- Parser especializado para extraer estadísticas de HTML (295 líneas)
+- **Extrae TODOS los identificadores necesarios:**
+  - ✅ IDs de equipos (home_team_id, away_team_id)
+  - ✅ IDs de jugadores (player_id para todos los jugadores)
+  - ✅ Información del partido (equipos, marcador, temporada)
+  - ✅ Estadísticas de jugadores (20+ métricas por jugador)
+  - ✅ Parciales por cuarto
+  - ✅ Árbitros (extraídos de spans específicos)
+  - ✅ Fecha y hora del partido
+  - ✅ Pabellón y ciudad (cuando disponibles)
+  - ✅ URLs de logos de equipos
+
+**Datos extraídos:**
+```python
+{
+  "match_code": "2098897",
+  "season": "2019/2020",
+  "competition_name": "LF ENDESA",
+  "match_date": "04/03/2020",
+  "match_time": "20:00",
+  "venue": "...",  # Pabellón (si disponible)
+  "city": "...",   # Ciudad (si disponible)
+  "referees": ["ÁRBITRO 1", "ÁRBITRO 2", "ÁRBITRO 3"],
+  
+  "home_team": "SEGLE XXI",
+  "home_team_id": "816913",  # ✅ ID extraído
+  "home_score": 72,
+  "home_logo": "https://imagenes.feb.es/...",
+  "home_quarters": [16, 11, 23, 22],
+  
+  "away_team": "BARÇA CBS",
+  "away_team_id": "816912",  # ✅ ID extraído
+  "away_score": 68,
+  "away_logo": "https://imagenes.feb.es/...",
+  "away_quarters": [18, 15, 16, 19],
+  
+  "players": [
+    {
+      "name": "GARCIA MATEO, MARTA",
+      "player_id": "1865395",  # ✅ ID extraído
+      "team": "SEGLE XXI",
+      "jersey": "11",
+      "starter": true,
+      "minutes": "29:14",
+      "points": 16,
+      "two_pt_made": 6, "two_pt_att": 9,
+      "three_pt_made": 0, "three_pt_att": 1,
+      "field_goals_made": 6, "field_goals_att": 10,
+      "free_throws_made": 4, "free_throws_att": 4,
+      "rebounds_off": 3, "rebounds_def": 3, "rebounds_total": 6,
+      "assists": 3, "steals": 1, "turnovers": 1,
+      "blocks_favor": 1, "blocks_against": 0,
+      "dunks": 0, "fouls_committed": 1, "fouls_received": 2,
+      "efficiency": 23, "plus_minus": "+1"
+    },
+    // ... 19 más
+  ],
+  
+  "data_source": "html_legacy"
+}
+```
+  
+**3. Fallback Automático** (`api_client.py`)
+- Detección de 404 en endpoint API
+- Fallback transparente a parsing HTML
+- Sin cambios en la interfaz pública
+
+**4. Web Client Actualizado** (`web_client.py`)
+- Parámetro `allow_404` para permitir respuestas 404
+- Necesario para detectar cuando usar fallback
+
+**Ejemplo de uso:**
+```python
+from src.scraper.feb_scraper import FEBScoutingScraper
+
+scraper = FEBScoutingScraper()
+# Funciona automáticamente para partidos antiguos
+data = scraper.scrape_match("2098897")  # Partido de 2019-20
+
+# Todos los IDs están disponibles
+print(f"Home Team ID: {data['home_team_id']}")    # 816913
+print(f"Away Team ID: {data['away_team_id']}")    # 816912
+print(f"Player 1 ID: {data['players'][0]['player_id']}")  # 2046909
+```
+
+**Testing:**
+- ✅ Probado con partido 2098897 (LF2 2019/2020)
+- ✅ SEGLE XXI 72 - 68 BARÇA CBS
+- ✅ 20 jugadores extraídos con IDs
+- ✅ Todos los identificadores presentes
+- ✅ JSON completamente compatible con API moderna
+
+**Investigación del endpoint alternativo:**
+- Se investigó `https://pruebas.feb.es/LiveStats.API/api/v1/BoxScore/` mencionado en el código JavaScript
+- **Conclusión**: Devuelve 401 (requiere token de servidor de desarrollo interno)
+- **Decisión**: Parsing HTML es la mejor solución para acceso público
+
+**Archivos modificados:**
+- `src/scraper/token_manager.py` - Búsqueda mejorada de tokens
+- `src/scraper/web_client.py` - Parámetro `allow_404` para fallback
+- `src/scraper/api_client.py` - Lógica de fallback automático
+- `src/scraper/legacy_parser.py` - **Mejorado**: Extracción completa de IDs y metadatos
+- **Nuevo:** Parser HTML completo (295 líneas) con todos los identificadores
+
+---
+
+## [0.4.2] - 2026-01-13
+
+### Unificación de Scripts de Scraping 🔄
+
+#### Problema
+- Existían 2 archivos separados: `examples.py` y `examples_incremental.py`
+- Redundante: el scraping YA es incremental por defecto
+- Confuso para usuarios nuevos
+
+#### Solución
+Unificación en **`run_scraping.py`** con menú completo:
+
+**Funcionalidades incluidas:**
+1. ✅ Listar competiciones disponibles
+2. ✅ Scraping interactivo (incremental por defecto)
+3. ✅ Scraping completo (re-scraping cuando sea necesario)
+4. ✅ Múltiples competiciones en batch
+5. ✅ Consultar base de datos
+6. ✅ Ver estado del scraping incremental
+7. ✅ Resetear estado del scraping
+8. ✅ Configuración personalizada de MongoDB
+
+**Uso:**
+```bash
+python src/run_scraping.py
+```
+
+**Archivos eliminados:**
+- ❌ `examples.py` (funcionalidad integrada)
+- ❌ `examples_incremental.py` (funcionalidad integrada)
+
+**Ventajas:**
+- Un solo punto de entrada
+- Menú organizado por categorías (Scraping / Consultas / Administración)
+- Documentación clara del modo incremental
+- Confirmaciones para operaciones destructivas
+
+---
+
 ## [0.4.1] - 2026-01-13
 
 ### Métricas Per-36 (Pace-Adjusted) ⚡
@@ -417,7 +707,7 @@ MongoDB (Raw) → ETL → SQLite (Processed) → XGBoost → SHAP → Prediction
 - Operaciones incrementales (skip de partidos ya descargados)
 - Script de instalación automatizado (install.ps1)
 - Documentación completa en README.md
-- Ejemplos de uso en examples.py
+- Script unificado de scraping en run_scraping.py (incremental + completo)
 - Archivo de configuración (config.py)
 
 ### Características del Scraper

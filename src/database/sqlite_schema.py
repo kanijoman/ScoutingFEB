@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS games (
     score_diff INTEGER,  -- home - away
     venue TEXT,
     attendance INTEGER,
+    match_weight REAL DEFAULT 1.0,  -- Peso del partido según importancia (1.0=regular, >1.0=importante)
     FOREIGN KEY (competition_id) REFERENCES competitions(competition_id),
     FOREIGN KEY (home_team_id) REFERENCES teams(team_id),
     FOREIGN KEY (away_team_id) REFERENCES teams(team_id)
@@ -133,30 +134,45 @@ CREATE TABLE IF NOT EXISTS player_game_stats (
     personal_fouls INTEGER,
     fouls_received INTEGER,
     
-    -- Métricas avanzadas
+    -- Métricas avanzadas básicas
     plus_minus INTEGER,
     efficiency_rating REAL,  -- Valoración
     usage_rate REAL,  -- % de posesiones usadas
     
-    -- Métricas per-36 minutos (pace-adjusted)
-    -- Normalizan el rendimiento eliminando el efecto de minutos jugados
-    -- Fundamentales para comparar jugadores con diferentes roles/minutos
-    points_per_36 REAL,  -- Puntos por 36 min
-    rebounds_per_36 REAL,  -- Rebotes por 36 min
-    assists_per_36 REAL,  -- Asistencias por 36 min
-    steals_per_36 REAL,  -- Robos por 36 min
-    blocks_per_36 REAL,  -- Tapones por 36 min
-    turnovers_per_36 REAL,  -- Pérdidas por 36 min
-    efficiency_per_36 REAL,  -- Eficiencia por 36 min
+    -- Métricas de eficiencia avanzadas
+    true_shooting_pct REAL,  -- TS% = PTS / (2 * (FGA + 0.44*FTA))
+    effective_fg_pct REAL,  -- eFG% = (FGM + 0.5*3PM) / FGA
+    offensive_rating REAL,  -- OER - Puntos generados por 100 posesiones
+    player_efficiency_rating REAL,  -- PER - Eficiencia global del jugador
+    
+    -- Porcentajes avanzados
+    turnover_pct REAL,  -- TOV% = TOV / (FGA + 0.44*FTA + TOV)
+    offensive_rebound_pct REAL,  -- ORB% = ORB / (ORB_team + DRB_opponent)
+    defensive_rebound_pct REAL,  -- DRB% = DRB / (DRB_team + ORB_opponent)
+    assist_to_turnover_ratio REAL,  -- AST/TOV ratio
+    free_throw_rate REAL,  -- FTr = FTA / FGA
+    
+    -- Win Shares (contribución al éxito del equipo)
+    win_shares REAL,  -- Estimación de victorias aportadas
+    win_shares_per_36 REAL,  -- WS normalizado a 36 minutos
     
     -- Z-Scores normalizados (comparables entre épocas/ligas)
     -- Fórmula: Z = (valor - media_grupo) / std_grupo
     -- Grupo = nivel_competición + temporada
-    z_points REAL,  -- Puntos normalizados
-    z_efficiency REAL,  -- Eficiencia normalizada
-    z_rebounds REAL,  -- Rebotes totales normalizados
-    z_assists REAL,  -- Asistencias normalizadas
-    z_usage REAL,  -- Uso normalizado
+    z_minutes REAL,  -- Minutos normalizados
+    z_offensive_rating REAL,  -- OER normalizado
+    z_true_shooting_pct REAL,  -- TS% normalizado
+    z_effective_fg_pct REAL,  -- eFG% normalizado
+    z_player_efficiency_rating REAL,  -- PER normalizado
+    z_win_shares_per_36 REAL,  -- WS/36 normalizado
+    z_turnover_pct REAL,  -- TOV% normalizado
+    z_offensive_rebound_pct REAL,  -- ORB% normalizado
+    z_defensive_rebound_pct REAL,  -- DRB% normalizado
+    z_usage_rate REAL,  -- Uso normalizado
+    
+    -- Diferencias vs media del nivel (para features diferenciales)
+    ts_pct_diff REAL,  -- TS% - media_nivel
+    efg_pct_diff REAL,  -- eFG% - media_nivel
     
     -- Resultado del partido para el equipo
     team_won BOOLEAN,
@@ -214,34 +230,40 @@ CREATE TABLE IF NOT EXISTS player_aggregated_stats (
     -- Tendencias (últimos N juegos)
     trend_points REAL,  -- Pendiente de regresión lineal
     trend_efficiency REAL,
+    trend_offensive_rating REAL,
     
-    -- Métricas per-36 agregadas (pace-adjusted)
-    avg_points_per_36 REAL,
-    avg_rebounds_per_36 REAL,
-    avg_assists_per_36 REAL,
-    avg_efficiency_per_36 REAL,
+    -- Métricas avanzadas agregadas
+    avg_true_shooting_pct REAL,
+    avg_effective_fg_pct REAL,
+    avg_offensive_rating REAL,
+    avg_player_efficiency_rating REAL,
+    avg_win_shares_per_36 REAL,
+    avg_turnover_pct REAL,
+    avg_offensive_rebound_pct REAL,
+    avg_defensive_rebound_pct REAL,
+    avg_assist_to_turnover_ratio REAL,
     
     -- Porcentaje de victorias
     win_percentage REAL,
     
-    -- Z-Scores agregados (comparación contextual)
-    z_avg_points REAL,
-    z_avg_efficiency REAL,
-    z_avg_rebounds REAL,
-    z_avg_assists REAL,
+    -- Z-Scores agregados (comparación contextual) para métricas avanzadas
+    z_avg_offensive_rating REAL,
+    z_avg_true_shooting_pct REAL,
+    z_avg_effective_fg_pct REAL,
+    z_avg_player_efficiency_rating REAL,
+    z_avg_win_shares_per_36 REAL,
+    z_avg_minutes REAL,
     
-    -- Z-Scores para métricas per-36 (CRÍTICO para comparar roles diferentes)
-    z_points_per_36 REAL,
-    z_rebounds_per_36 REAL,
-    z_assists_per_36 REAL,
-    z_efficiency_per_36 REAL,
+    -- Diferencias vs media del nivel competitivo
+    ts_pct_diff REAL,
+    efg_pct_diff REAL,
     
     -- Percentiles (comunicación clara para scouts)
     -- Percentil 90 = mejor que 90% de jugadores en su contexto
-    percentile_points INTEGER,  -- 0-100
-    percentile_efficiency INTEGER,
-    percentile_rebounds INTEGER,
-    percentile_assists INTEGER,
+    percentile_offensive_rating INTEGER,  -- 0-100
+    percentile_player_efficiency_rating INTEGER,
+    percentile_true_shooting_pct INTEGER,
+    percentile_win_shares INTEGER,
     
     -- Clasificación de rendimiento
     performance_tier TEXT CHECK(performance_tier IN 
@@ -291,6 +313,66 @@ CREATE TABLE IF NOT EXISTS game_context (
     rivalry_score REAL,  -- 0-1, basado en historial
     
     FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+
+-- ============================================================================
+-- CARACTERÍSTICAS DE RETENCIÓN Y MOVILIDAD (features para ML)
+-- ============================================================================
+
+-- Tabla de retención y movilidad de jugadores entre temporadas
+CREATE TABLE IF NOT EXISTS player_retention_features (
+    retention_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    season TEXT NOT NULL,
+    competition_id INTEGER NOT NULL,
+    
+    -- Features de retención
+    stays_next_season BOOLEAN,  -- ¿Se mantiene en el club la siguiente temporada?
+    next_season_team_id INTEGER,  -- ID del equipo siguiente temporada (NULL si no continúa)
+    next_season_competition_id INTEGER,  -- ID de competición siguiente temporada
+    
+    -- Cambio de nivel competitivo
+    current_level INTEGER,  -- Nivel actual de competición
+    next_level INTEGER,  -- Nivel siguiente temporada
+    level_change INTEGER,  -- Diferencia de niveles (positivo=ascenso, negativo=descenso)
+    
+    -- Clasificación combinada de retención y cambio de nivel
+    -- 0 = se va del club
+    -- 1 = se mantiene en club, nivel igual
+    -- 2 = se mantiene en club, sube de nivel (club asciende)
+    -- 3 = se mantiene en club, baja de nivel (club desciende)
+    stays_and_level_change INTEGER CHECK(stays_and_level_change IN (0, 1, 2, 3)),
+    
+    -- Features contextuales para retención
+    age_at_season_end INTEGER,  -- Edad al final de temporada
+    veteran_flag BOOLEAN,  -- 1 si edad > 28 años (ajustable)
+    years_in_club INTEGER,  -- Años consecutivos en el mismo club
+    
+    -- Features de rendimiento en temporada actual
+    avg_offensive_rating REAL,
+    z_offensive_rating REAL,
+    avg_minutes_per_game REAL,
+    z_minutes_per_game REAL,
+    avg_player_efficiency_rating REAL,
+    z_player_efficiency_rating REAL,
+    
+    -- Features de interacción (retención cultural vs talento)
+    stays_bonus REAL,  -- stays_next_season * z_offensive_rating
+    stays_cultural_flag BOOLEAN,  -- stays=1 AND veteran=1 AND z_OER < 0
+    
+    -- Deltas de rendimiento (cambio vs temporada anterior)
+    delta_offensive_rating_z REAL,  -- Cambio en z_OER vs temporada anterior
+    delta_true_shooting_diff REAL,  -- Cambio en TS% diferencial
+    delta_minutes_z REAL,  -- Cambio en minutos normalizados
+    delta_player_efficiency_rating_z REAL,  -- Cambio en z_PER
+    
+    FOREIGN KEY (player_id) REFERENCES players(player_id),
+    FOREIGN KEY (team_id) REFERENCES teams(team_id),
+    FOREIGN KEY (competition_id) REFERENCES competitions(competition_id),
+    FOREIGN KEY (next_season_team_id) REFERENCES teams(team_id),
+    FOREIGN KEY (next_season_competition_id) REFERENCES competitions(competition_id),
+    UNIQUE(player_id, team_id, season)
 );
 
 -- ============================================================================
@@ -375,8 +457,12 @@ CREATE INDEX IF NOT EXISTS idx_targets_player ON player_targets(player_id);
 CREATE INDEX IF NOT EXISTS idx_targets_game ON player_targets(game_id);
 
 CREATE INDEX IF NOT EXISTS idx_comp_levels_season ON competition_levels(competition_id, season);
-CREATE INDEX IF NOT EXISTS idx_player_stats_zscore ON player_game_stats(z_efficiency, z_points);
-CREATE INDEX IF NOT EXISTS idx_player_agg_percentile ON player_aggregated_stats(percentile_efficiency, percentile_points);
+CREATE INDEX IF NOT EXISTS idx_player_stats_advanced ON player_game_stats(z_offensive_rating, z_player_efficiency_rating);
+CREATE INDEX IF NOT EXISTS idx_player_agg_advanced ON player_aggregated_stats(z_avg_offensive_rating, z_avg_player_efficiency_rating);
+
+CREATE INDEX IF NOT EXISTS idx_retention_player_season ON player_retention_features(player_id, season);
+CREATE INDEX IF NOT EXISTS idx_retention_team ON player_retention_features(team_id);
+CREATE INDEX IF NOT EXISTS idx_retention_stays ON player_retention_features(stays_next_season, stays_and_level_change);
 
 -- ============================================================================
 -- VISTAS ÚTILES PARA ML
@@ -394,50 +480,76 @@ SELECT
     p.birth_year,
     p.years_experience,
     
-    -- Stats del partido
-    pgs.*,
-    
-    -- Métricas per-36 del partido
-    pgs.points_per_36,
-    pgs.rebounds_per_36,
-    pgs.assists_per_36,
-    pgs.efficiency_per_36,
-    
     -- Info del partido
     g.season,
     g.game_date,
     c.competition_name,
     c.gender,
     c.level,
+    cl.competition_level,
+    
+    -- Stats del partido (métricas avanzadas)
+    pgs.minutes_played,
+    pgs.true_shooting_pct,
+    pgs.effective_fg_pct,
+    pgs.offensive_rating,
+    pgs.player_efficiency_rating,
+    pgs.turnover_pct,
+    pgs.offensive_rebound_pct,
+    pgs.defensive_rebound_pct,
+    pgs.win_shares,
+    pgs.win_shares_per_36,
+    pgs.usage_rate,
+    pgs.assist_to_turnover_ratio,
+    
+    -- Z-Scores del partido
+    pgs.z_minutes,
+    pgs.z_offensive_rating,
+    pgs.z_true_shooting_pct,
+    pgs.z_effective_fg_pct,
+    pgs.z_player_efficiency_rating,
+    pgs.z_win_shares_per_36,
+    pgs.z_turnover_pct,
+    pgs.z_usage_rate,
+    
+    -- Diferencias vs nivel
+    pgs.ts_pct_diff,
+    pgs.efg_pct_diff,
     
     -- Stats agregadas del jugador
-    pas.avg_points,
-    pas.avg_efficiency,
+    pas.avg_offensive_rating,
+    pas.avg_player_efficiency_rating,
+    pas.avg_true_shooting_pct,
+    pas.avg_effective_fg_pct,
+    pas.avg_win_shares_per_36,
     pas.avg_minutes,
     pas.win_percentage,
-    pas.std_points,
-    pas.trend_points,
+    pas.trend_offensive_rating,
     
-    -- Métricas per-36 agregadas
-    pas.avg_points_per_36,
-    pas.avg_rebounds_per_36,
-    pas.avg_assists_per_36,
-    pas.avg_efficiency_per_36,
-    
-    -- Z-Scores normalizados
-    pgs.z_points,
-    pgs.z_efficiency,
-    pgs.z_rebounds,
-    pgs.z_assists,
-    pas.z_avg_points,
-    pas.z_avg_efficiency,
-    pas.z_points_per_36,
-    pas.z_efficiency_per_36,
+    -- Z-Scores agregados
+    pas.z_avg_offensive_rating,
+    pas.z_avg_player_efficiency_rating,
+    pas.z_avg_true_shooting_pct,
+    pas.z_avg_win_shares_per_36,
+    pas.z_avg_minutes,
     
     -- Percentiles
-    pas.percentile_points,
-    pas.percentile_efficiency,
+    pas.percentile_offensive_rating,
+    pas.percentile_player_efficiency_rating,
+    pas.percentile_true_shooting_pct,
     pas.performance_tier,
+    
+    -- Features de retención (si existen)
+    prf.stays_next_season,
+    prf.stays_and_level_change,
+    prf.veteran_flag,
+    prf.years_in_club,
+    prf.level_change,
+    prf.stays_bonus,
+    prf.stays_cultural_flag,
+    prf.delta_offensive_rating_z,
+    prf.delta_true_shooting_diff,
+    prf.delta_minutes_z,
     
     -- Contexto del equipo
     tgc.team_streak,
@@ -452,9 +564,13 @@ FROM player_game_stats pgs
 JOIN players p ON pgs.player_id = p.player_id
 JOIN games g ON pgs.game_id = g.game_id
 JOIN competitions c ON g.competition_id = c.competition_id
+LEFT JOIN competition_levels cl ON g.competition_id = cl.competition_id AND g.season = cl.season
 LEFT JOIN player_aggregated_stats pas ON pgs.player_id = pas.player_id 
     AND g.season = pas.season
     AND g.competition_id = pas.competition_id
+LEFT JOIN player_retention_features prf ON pgs.player_id = prf.player_id 
+    AND g.season = prf.season
+    AND pgs.team_id = prf.team_id
 LEFT JOIN team_game_context tgc ON pgs.game_id = tgc.game_id 
     AND pgs.team_id = tgc.team_id
 LEFT JOIN game_context gc ON pgs.game_id = gc.game_id;
