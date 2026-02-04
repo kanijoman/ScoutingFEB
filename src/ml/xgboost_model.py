@@ -92,11 +92,7 @@ class PlayerPerformanceModel:
         SELECT 
             pgs.player_id,
             pgs.game_id,
-            p.position,
-            p.total_games,
-            p.birth_year,
-            p.years_experience,
-            
+
             -- Features del partido actual
             pgs.age_at_game,
             pgs.minutes_played,
@@ -117,11 +113,11 @@ class PlayerPerformanceModel:
             pgs.team_won,
             
             -- Z-Scores normalizados (CRÍTICOS para comparar épocas/ligas)
-            pgs.z_points,
-            pgs.z_efficiency,
-            pgs.z_rebounds,
-            pgs.z_assists,
-            pgs.z_usage,
+            pgs.z_offensive_rating,
+            pgs.z_player_efficiency_rating,
+            pgs.z_true_shooting_pct,
+            pgs.z_usage_rate,
+            pgs.z_minutes,
             
             -- Features agregadas del jugador
             pas.avg_age,
@@ -140,12 +136,12 @@ class PlayerPerformanceModel:
             pas.games_played as season_games_played,
             
             -- Z-Scores y percentiles agregados
-            pas.z_avg_points,
-            pas.z_avg_efficiency,
-            pas.z_avg_rebounds,
-            pas.z_avg_assists,
-            pas.percentile_points,
-            pas.percentile_efficiency,
+            pas.z_avg_offensive_rating,
+            pas.z_avg_player_efficiency_rating,
+            pas.z_avg_true_shooting_pct,
+            pas.z_avg_win_shares_per_36,
+            pas.percentile_offensive_rating,
+            pas.percentile_player_efficiency_rating,
             
             -- Features del partido
             g.score_diff,
@@ -163,7 +159,6 @@ class PlayerPerformanceModel:
             NULL as next_game_efficiency
             
         FROM player_game_stats pgs
-        JOIN players p ON pgs.player_id = p.player_id
         JOIN games g ON pgs.game_id = g.game_id
         JOIN competitions c ON g.competition_id = c.competition_id
         LEFT JOIN player_aggregated_stats pas 
@@ -173,8 +168,14 @@ class PlayerPerformanceModel:
         LEFT JOIN team_game_context tgc 
             ON pgs.game_id = tgc.game_id 
             AND pgs.team_id = tgc.team_id
-        WHERE p.total_games >= ?
-            AND pgs.minutes_played > 0
+        WHERE pgs.player_id IN (
+            -- Filtrar jugadores/perfiles con suficientes partidos
+            SELECT player_id 
+            FROM player_game_stats 
+            GROUP BY player_id 
+            HAVING COUNT(*) >= ?
+        )
+        AND pgs.minutes_played > 0
         ORDER BY pgs.player_id, g.game_date
         """
         
@@ -278,7 +279,6 @@ class PlayerPerformanceModel:
         model.fit(
             X_train, y_train,
             eval_set=[(X_test, y_test)],
-            early_stopping_rounds=20,
             verbose=False
         )
         
@@ -488,8 +488,9 @@ class PlayerPerformanceModel:
             return {}
         
         # Preparar features
-        feature_cols = [col for col in df.columns if col in self.feature_names]
-        X = df[feature_cols]
+        # Solo usar features que existen tanto en df como en el modelo
+        feature_cols = [col for col in self.feature_names if col in df.columns]
+        X = df[feature_cols].copy()
         
         # Encoding categórico (simplificado)
         categorical_cols = ['position', 'gender', 'level']

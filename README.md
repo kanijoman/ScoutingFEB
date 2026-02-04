@@ -6,10 +6,28 @@ Sistema de scouting de baloncesto basado en IA para predecir el rendimiento futu
 
 - **Scraping Automático**: Recopilación de datos de partidos desde la web de la FEB
 - **Sistema Incremental**: Solo procesa encuentros nuevos (ahorro 97-98%)
+- **Gestión de Identidades**: Sistema inteligente para resolver duplicados de jugadores
 - **ETL Completo**: Pipeline de transformación MongoDB → SQLite
 - **Machine Learning**: Modelos XGBoost para predicción de rendimiento
 - **Interpretabilidad**: Explicaciones SHAP de las predicciones
 - **Base de Datos Dual**: MongoDB (raw) + SQLite (procesado)
+
+## 🆕 Sistema de Gestión de Identidades
+
+El sistema ahora incluye un **sofisticado sistema de perfiles de jugadores** que resuelve el problema de identificación única:
+
+### Problema Resuelto
+- ❌ Un mismo jugador puede tener múltiples IDs FEB entre temporadas
+- ❌ Nombres en formatos inconsistentes ("J. PÉREZ", "JUAN PÉREZ", "PÉREZ, JUAN")
+- ❌ Fechas de nacimiento no siempre disponibles
+
+### Solución Implementada
+- ✅ **Perfiles únicos**: Cada aparición (nombre+equipo+temporada) genera un perfil
+- ✅ **Candidate Matching**: Algoritmo de similitud automático con scoring (0.0-1.0)
+- ✅ **Validación Humana**: El staff confirma identidades, el sistema aprende
+- ✅ **Scoring de Potencial**: Identificación automática de jugadores prometedores
+
+**Ver documentación completa:** [PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)
 
 ## Descripción
 
@@ -56,7 +74,13 @@ ScoutingFEB/
 │   └── ml/                             # 🆕 Módulo de Machine Learning
 │       ├── __init__.py
 │       ├── etl_processor.py           # ETL MongoDB → SQLite
-│       └── xgboost_model.py           # Modelos XGBoost + SHAP
+│       ├── xgboost_model.py           # Modelos XGBoost + SHAP
+│       ├── name_normalizer.py         # 🆕 Normalización de nombres
+│       ├── player_identity_matcher.py # 🆕 Matching de identidades
+│       └── identity_manager_cli.py    # 🆕 CLI de gestión
+│
+├── examples/                           # 🆕 Scripts de ejemplo
+│   └── identity_system_examples.py    # Ejemplos del sistema
 │
 ├── models/                             # 🆕 Modelos ML entrenados
 │   ├── *.joblib                       # Modelos serializados
@@ -72,6 +96,8 @@ ScoutingFEB/
 ├── INCREMENTAL_SCRAPING.md            # 📚 Doc: Sistema incremental
 ├── INCREMENTAL_SYSTEM_DIAGRAM.md      # 📚 Doc: Diagramas
 ├── ML_SYSTEM.md                       # 📚 Doc: Sistema ML
+├── PLAYER_IDENTITY_SYSTEM.md          # 📚 Doc: Gestión de identidades
+├── IMPLEMENTATION_SUMMARY_IDENTITIES.md # 📚 Doc: Resumen implementación
 └── ARCHITECTURE.md                    # 📚 Doc: Arquitectura completa
 ```
 
@@ -130,7 +156,7 @@ python main.py
 ### Opción 2: Pipeline Completo (Scraping + ETL + ML)
 
 ```powershell
-# Ejecutar pipeline completo
+# Ejecutar pipeline completo con sistema de perfiles
 cd src
 python run_ml_pipeline.py
 
@@ -141,24 +167,55 @@ python run_ml_pipeline.py --skip-training  # Saltar entrenamiento
 ```
 
 Este comando ejecutará:
-1. ✅ Creación de esquema SQLite
-2. ✅ Proceso ETL (MongoDB → SQLite)
-3. ✅ Entrenamiento de modelos XGBoost
-4. ✅ Análisis SHAP de interpretabilidad
-5. ✅ Predicciones de ejemplo
+1. ✅ Creación de esquema SQLite (con tablas de perfiles)
+2. ✅ Proceso ETL (MongoDB → SQLite) con gestión de identidades
+3. ✅ Generación de candidatos de matching automático
+4. ✅ Cálculo de scores de potencial
+5. ✅ Entrenamiento de modelos XGBoost
+6. ✅ Análisis SHAP de interpretabilidad
+7. ✅ Predicciones de ejemplo
+
+### Opción 3: Sistema de Gestión de Identidades
+
+```powershell
+# Ver candidatos de alta confianza
+python src/ml/identity_manager_cli.py list-candidates --min-score 0.70
+
+# Ver detalles de un perfil
+python src/ml/identity_manager_cli.py profile 1234
+
+# Validar un candidato
+python src/ml/identity_manager_cli.py validate 123 confirmed
+
+# Ver jugadores con alto potencial
+python src/ml/identity_manager_cli.py potential --min-score 0.60
+
+# Ver estadísticas de validación
+python src/ml/identity_manager_cli.py stats
+
+# Ejecutar ejemplos interactivos
+python examples/identity_system_examples.py
+```
+
+**Ver guía completa:** [PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)
 
 ## 📚 Documentación
 
 ### Guías Principales
 - **[QUICKSTART.md](QUICKSTART.md)** - Guía rápida de inicio
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Arquitectura completa del sistema
+- **[PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)** - 🆕 Sistema de gestión de identidades de jugadores
 - **[ML_SYSTEM.md](ML_SYSTEM.md)** - Sistema de Machine Learning con XGBoost + SHAP
-- **[MATCH_WEIGHTING.md](MATCH_WEIGHTING.md)** - 🆕 Sistema de ponderación de partidos importantes
+- **[MATCH_WEIGHTING.md](MATCH_WEIGHTING.md)** - Sistema de ponderación de partidos importantes
 - **[INCREMENTAL_SCRAPING.md](INCREMENTAL_SCRAPING.md)** - Sistema de scraping incremental
+
+### Implementación y Cambios
+- **[IMPLEMENTATION_SUMMARY_IDENTITIES.md](IMPLEMENTATION_SUMMARY_IDENTITIES.md)** - 🆕 Resumen de implementación del sistema de identidades
+- **[CHANGELOG.md](CHANGELOG.md)** - Historial de cambios y versiones
 
 ### Diagramas y Ejemplos
 - **[INCREMENTAL_SYSTEM_DIAGRAM.md](INCREMENTAL_SYSTEM_DIAGRAM.md)** - Diagramas del sistema incremental
-- **[CHANGELOG.md](CHANGELOG.md)** - Historial de cambios y versiones
+- **[examples/identity_system_examples.py](examples/identity_system_examples.py)** - 🆕 Ejemplos interactivos del sistema
 
 ## Uso
 

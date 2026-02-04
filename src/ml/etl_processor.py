@@ -19,6 +19,8 @@ from database.mongodb_client import MongoDBClient
 from database.sqlite_schema import SQLiteSchemaManager
 from ml.normalization import ZScoreNormalizer, initialize_competition_levels
 from ml.advanced_stats import calculate_all_advanced_stats
+from ml.name_normalizer import NameNormalizer
+from ml.player_identity_matcher import PlayerIdentityMatcher
 import numpy as np
 
 
@@ -27,7 +29,8 @@ class FEBDataETL:
     
     def __init__(self, mongodb_uri: str = "mongodb://localhost:27017/",
                  mongodb_db: str = "scouting_feb",
-                 sqlite_path: str = "scouting_feb.db"):
+                 sqlite_path: str = "scouting_feb.db",
+                 use_profiles: bool = True):
         """
         Inicializar el proceso ETL.
         
@@ -35,10 +38,16 @@ class FEBDataETL:
             mongodb_uri: URI de conexión a MongoDB
             mongodb_db: Nombre de la base de datos MongoDB
             sqlite_path: Ruta al archivo SQLite
+            use_profiles: Si True, usa sistema de perfiles. Si False, usa jugadores únicos
         """
         self.mongo_client = MongoDBClient(mongodb_uri, mongodb_db)
         self.sqlite_path = sqlite_path
         self.logger = logging.getLogger(__name__)
+        self.use_profiles = use_profiles
+        
+        # Inicializar normalizador de nombres y matcher
+        self.name_normalizer = NameNormalizer()
+        self.identity_matcher = PlayerIdentityMatcher(sqlite_path) if use_profiles else None
         
         # Crear esquema SQLite si no existe
         schema_manager = SQLiteSchemaManager(sqlite_path)
@@ -173,19 +182,38 @@ class FEBDataETL:
         game_data["player_stats"] = []
         
         if isinstance(boxscore, dict):
-            for team_key, team_data in boxscore.items():
-                if isinstance(team_data, dict):
-                    players = team_data.get("PLAYER", [])
-                    team_won = team_data.get("won", "0") == "1"
-                    
-                    # Determinar si es equipo local (team_key = "1" suele ser local)
-                    is_home = team_key == "1"
-                    
-                    for player in players:
-                        player_stat = self._transform_player_stats(
-                            player, is_home, team_won, game_data.get("game_date")
-                        )
-                        game_data["player_stats"].append(player_stat)
+            # Manejar formato nuevo: BOXSCORE = {'TEAM': [team1, team2]}
+            if 'TEAM' in boxscore and isinstance(boxscore['TEAM'], list):
+                teams_list = boxscore['TEAM']
+                for team_idx, team_data in enumerate(teams_list):
+                    if isinstance(team_data, dict):
+                        players = team_data.get("PLAYER", [])
+                        team_won = team_data.get("win_lose", "L") == "W"
+                        
+                        # El primer equipo (idx=0) suele ser local
+                        is_home = team_idx == 0
+                        
+                        for player in players:
+                            player_stat = self._transform_player_stats(
+                                player, is_home, team_won, game_data.get("game_date")
+                            )
+                            game_data["player_stats"].append(player_stat)
+            
+            # Manejar formato antiguo: BOXSCORE = {'1': team1, '2': team2}
+            else:
+                for team_key, team_data in boxscore.items():
+                    if isinstance(team_data, dict):
+                        players = team_data.get("PLAYER", [])
+                        team_won = team_data.get("won", "0") == "1"
+                        
+                        # Determinar si es equipo local (team_key = "1" suele ser local)
+                        is_home = team_key == "1"
+                        
+                        for player in players:
+                            player_stat = self._transform_player_stats(
+                                player, is_home, team_won, game_data.get("game_date")
+                            )
+                            game_data["player_stats"].append(player_stat)
         
         return game_data
     
@@ -216,41 +244,102 @@ class FEBDataETL:
             except (ValueError, TypeError):
                 return default
         
-        # Parsear tiempo de juego (formato: "MM:SS")
+        # Parsear tiempo de juego
+        # Puede venir en formato "MM:SS" (minFormatted) o en segundos (min)
         minutes_played = 0.0
-        time_str = player.get("min", "0:00")
-        if isinstance(time_str, str) and ":" in time_str:
+        time_str = player.get("minFormatted", player.get("min", "0:00"))
+        
+        # Si es un número (segundos), convertir a minutos
+        if isinstance(time_str, (int, float)):
+            minutes_played = time_str / 60.0
+        # Si es string con formato MM:SS
+        elif isinstance(time_str, str) and ":" in time_str:
             parts = time_str.split(":")
             if len(parts) == 2:
                 minutes_played = safe_int(parts[0]) + safe_int(parts[1]) / 60.0
+        # Si es string con solo número
+        elif isinstance(time_str, str) and time_str.isdigit():
+            minutes_played = safe_int(time_str) / 60.0
         
         # Calcular porcentajes de tiro
-        field_goals_made = safe_int(player.get("t2In", 0)) + safe_int(player.get("t3In", 0))
-        field_goals_att = safe_int(player.get("t2Out", 0)) + safe_int(player.get("t3Out", 0))
-        field_goal_pct = (field_goals_made / field_goals_att * 100) if field_goals_att > 0 else 0.0
-        
-        three_made = safe_int(player.get("t3In", 0))
-        three_att = safe_int(player.get("t3Out", 0))
+        # FEB usa: p1m/p1a (tiros libres), p2m/p2a (tiros de 2), p3m/p3a (triples)
+        three_made = safe_int(player.get("p3m", 0))
+        three_att = safe_int(player.get("p3a", 0))
         three_pct = (three_made / three_att * 100) if three_att > 0 else 0.0
         
-        two_made = safe_int(player.get("t2In", 0))
-        two_att = safe_int(player.get("t2Out", 0))
+        two_made = safe_int(player.get("p2m", 0))
+        two_att = safe_int(player.get("p2a", 0))
         two_pct = (two_made / two_att * 100) if two_att > 0 else 0.0
         
-        ft_made = safe_int(player.get("t1In", 0))
-        ft_att = safe_int(player.get("t1Out", 0))
+        field_goals_made = two_made + three_made
+        field_goals_att = two_att + three_att
+        field_goal_pct = (field_goals_made / field_goals_att * 100) if field_goals_att > 0 else 0.0
+        
+        ft_made = safe_int(player.get("p1m", 0))
+        ft_att = safe_int(player.get("p1a", 0))
         ft_pct = (ft_made / ft_att * 100) if ft_att > 0 else 0.0
         
         # Calcular edad si tenemos la información
         age_at_game = None
         birth_year = player.get("birth_year")  # Si está disponible en los datos
+        
+        # Validar birth_year - debe estar en un rango razonable para baloncesto profesional
+        # Jugadores típicamente tienen entre 15 y 45 años
         if birth_year and game_date:
             try:
                 from datetime import datetime
-                game_year = datetime.fromisoformat(game_date.replace('Z', '+00:00')).year
-                age_at_game = game_year - int(birth_year)
-            except:
-                pass
+                
+                # Intentar parsear game_date en diferentes formatos
+                game_year = None
+                
+                # Formato ISO: "2025-10-04T19:00:00"
+                if 'T' in game_date or game_date.count('-') >= 2:
+                    try:
+                        game_year = datetime.fromisoformat(game_date.replace('Z', '+00:00')).year
+                    except:
+                        pass
+                
+                # Formato FEB: "04-10-2025 - 19:00" o "04-10-2025"
+                if not game_year:
+                    date_part = game_date.split(' - ')[0].strip() if ' - ' in game_date else game_date.strip()
+                    parts = date_part.split('-')
+                    if len(parts) == 3:
+                        # Puede ser DD-MM-YYYY o YYYY-MM-DD
+                        if len(parts[0]) == 4:  # YYYY-MM-DD
+                            game_year = int(parts[0])
+                        else:  # DD-MM-YYYY
+                            game_year = int(parts[2])
+                
+                if game_year:
+                    calculated_age = game_year - int(birth_year)
+                    
+                    # Validar que la edad sea razonable (entre 12 y 50 años)
+                    if 12 <= calculated_age <= 50:
+                        age_at_game = calculated_age
+                    else:
+                        # Edad no razonable - intentar parsear birth_date
+                        birth_date_str = player.get("birth_date", "")
+                        if birth_date_str and "/" in birth_date_str:
+                            parts = birth_date_str.split("/")
+                            if len(parts) == 3:
+                                # Formato DD/MM/YYYY
+                                potential_year = safe_int(parts[2])
+                                if potential_year and 12 <= (game_year - potential_year) <= 50:
+                                    birth_year = potential_year
+                                    age_at_game = game_year - potential_year
+                                else:
+                                    birth_year = None
+                        else:
+                            birth_year = None
+            except Exception as e:
+                # En caso de error, mantener birth_year original si es razonable
+                # Solo invalidar si está fuera del rango 1950-2020
+                try:
+                    by = int(birth_year)
+                    if not (1950 <= by <= 2020):
+                        birth_year = None
+                except:
+                    birth_year = None
         
         # Preparar datos para calcular métricas avanzadas
         stats_for_advanced = {
@@ -274,12 +363,12 @@ class FEBDataETL:
         advanced_stats = calculate_all_advanced_stats(stats_for_advanced)
         
         return {
-            "dorsal": player.get("dorsal", ""),
+            "dorsal": player.get("no", ""),
             "name": player.get("name", "").strip(),
-            "birth_year": player.get("birth_year"),  # Si está disponible
+            "birth_year": birth_year,  # Usar la variable validada, no player.get()
             "age_at_game": age_at_game,
             "is_home": is_home,
-            "is_starter": player.get("starting", "0") == "1",
+            "is_starter": player.get("inn", "0") == "1",
             "team_won": team_won,
             
             # Tiempo
@@ -301,23 +390,23 @@ class FEBDataETL:
             "free_throw_pct": ft_pct,
             
             # Rebotes
-            "offensive_rebounds": safe_int(player.get("offReb", 0)),
-            "defensive_rebounds": safe_int(player.get("defReb", 0)),
-            "total_rebounds": safe_int(player.get("totReb", 0)),
+            "offensive_rebounds": safe_int(player.get("ro", 0)),
+            "defensive_rebounds": safe_int(player.get("rd", 0)),
+            "total_rebounds": safe_int(player.get("rt", 0)),
             
             # Pases y balones
-            "assists": safe_int(player.get("ass", 0)),
-            "turnovers": safe_int(player.get("steals", 0)),  # Pérdidas
-            "steals": safe_int(player.get("stl", 0)),  # Robos
+            "assists": safe_int(player.get("assist", 0)),
+            "turnovers": safe_int(player.get("to", 0)),  # Pérdidas
+            "steals": safe_int(player.get("st", 0)),  # Robos
             
             # Defensa
-            "blocks": safe_int(player.get("blocks", 0)),
-            "blocks_received": safe_int(player.get("blocksRec", 0)),
-            "personal_fouls": safe_int(player.get("fouls", 0)),
-            "fouls_received": safe_int(player.get("foulsRec", 0)),
+            "blocks": safe_int(player.get("bs", 0)),
+            "blocks_received": safe_int(player.get("mt", 0)),
+            "personal_fouls": safe_int(player.get("pf", 0)),
+            "fouls_received": safe_int(player.get("rf", 0)),
             
             # Métricas legacy
-            "plus_minus": safe_int(player.get("plusMinus", 0)),
+            "plus_minus": safe_int(player.get("pllss", 0)),
             "efficiency_rating": safe_float(player.get("val", 0)),
             
             # Métricas avanzadas
@@ -338,6 +427,94 @@ class FEBDataETL:
     # =========================================================================
     # LOAD - Carga a SQLite
     # =========================================================================
+    
+    def load_or_get_player_profile(
+        self,
+        conn: sqlite3.Connection,
+        name: str,
+        team_id: int,
+        season: str,
+        competition_id: int,
+        game_date: str,
+        feb_id: str = None,
+        dorsal: str = None,
+        birth_year: int = None
+    ) -> int:
+        """
+        Crear o obtener un perfil de jugador.
+        
+        En el sistema de perfiles, cada combinación única de nombre+equipo+temporada
+        genera un perfil separado. La consolidación se hace posteriormente.
+        
+        Args:
+            conn: Conexión SQLite
+            name: Nombre del jugador
+            team_id: ID del equipo
+            season: Temporada
+            competition_id: ID de competición
+            game_date: Fecha del partido
+            feb_id: ID FEB del jugador (opcional)
+            dorsal: Dorsal (opcional)
+            birth_year: Año de nacimiento (opcional)
+            
+        Returns:
+            profile_id
+        """
+        cursor = conn.cursor()
+        
+        # Normalizar nombre
+        name_normalized = self.name_normalizer.normalize_name(name)
+        
+        # Intentar encontrar perfil existente
+        cursor.execute("""
+            SELECT profile_id, first_game_date, last_game_date, total_games,
+                   birth_year, dorsal
+            FROM player_profiles
+            WHERE name_normalized = ? 
+                AND team_id = ? 
+                AND season = ?
+        """, (name_normalized, team_id, season))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            profile_id, first_date, last_date, total_games, existing_birth_year, existing_dorsal = existing
+            
+            # Actualizar información del perfil
+            new_first = min(first_date, game_date) if first_date else game_date
+            new_last = max(last_date, game_date) if last_date else game_date
+            
+            # Actualizar birth_year y dorsal si no existían
+            final_birth_year = existing_birth_year if existing_birth_year else birth_year
+            final_dorsal = existing_dorsal if existing_dorsal else dorsal
+            
+            cursor.execute("""
+                UPDATE player_profiles
+                SET first_game_date = ?,
+                    last_game_date = ?,
+                    total_games = total_games + 1,
+                    birth_year = ?,
+                    dorsal = ?,
+                    updated_at = ?
+                WHERE profile_id = ?
+            """, (new_first, new_last, final_birth_year, final_dorsal,
+                  datetime.now().isoformat(), profile_id))
+            
+            return profile_id
+        
+        else:
+            # Crear nuevo perfil
+            cursor.execute("""
+                INSERT INTO player_profiles (
+                    feb_id, name_raw, name_normalized,
+                    team_id, season, competition_id,
+                    first_game_date, last_game_date, total_games,
+                    birth_year, dorsal
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """, (feb_id, name, name_normalized, team_id, season, competition_id,
+                  game_date, game_date, birth_year, dorsal))
+            
+            return cursor.lastrowid
     
     def load_competition(self, conn: sqlite3.Connection, comp_name: str, 
                         gender: str) -> int:
@@ -497,76 +674,342 @@ class FEBDataETL:
             
             # 4. Cargar estadísticas de jugadores
             for player_stat in game_data["player_stats"]:
-                # Cargar/actualizar jugador
-                player_id = self.load_player(
-                    conn,
-                    name=player_stat["name"],
-                    first_seen=game_data["game_date"],
-                    dorsal=player_stat.get("dorsal"),
-                    birth_year=player_stat.get("birth_year")
-                )
-                
                 # Determinar team_id
                 team_id = home_team_id if player_stat["is_home"] else away_team_id
                 
-                # Insertar estadísticas del jugador en el partido
-                cursor.execute("""
-                    INSERT OR REPLACE INTO player_game_stats (
-                        game_id, player_id, team_id, is_home, is_starter,
-                        age_at_game,
-                        minutes_played, points,
-                        field_goals_made, field_goals_attempted, field_goal_pct,
-                        three_points_made, three_points_attempted, three_point_pct,
-                        two_points_made, two_points_attempted, two_point_pct,
-                        free_throws_made, free_throws_attempted, free_throw_pct,
-                        offensive_rebounds, defensive_rebounds, total_rebounds,
-                        assists, turnovers, steals,
-                        blocks, blocks_received, personal_fouls, fouls_received,
-                        plus_minus, efficiency_rating,
-                        true_shooting_pct, effective_fg_pct, offensive_rating,
-                        player_efficiency_rating, turnover_pct,
-                        offensive_rebound_pct, defensive_rebound_pct,
-                        free_throw_rate, assist_to_turnover_ratio, usage_rate,
-                        win_shares, win_shares_per_36,
-                        team_won
-                    ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                if self.use_profiles:
+                    # Usar sistema de perfiles
+                    profile_id = self.load_or_get_player_profile(
+                        conn,
+                        name=player_stat["name"],
+                        team_id=team_id,
+                        season=game_data["season"],
+                        competition_id=comp_id,
+                        game_date=game_data["game_date"],
+                        dorsal=player_stat.get("dorsal"),
+                        birth_year=player_stat.get("birth_year")
                     )
-                """, (
-                    game_data["game_id"], player_id, team_id,
-                    player_stat["is_home"], player_stat["is_starter"],
-                    player_stat.get("age_at_game"),
-                    player_stat["minutes_played"], player_stat["points"],
-                    player_stat["field_goals_made"], player_stat["field_goals_attempted"],
-                    player_stat["field_goal_pct"],
-                    player_stat["three_points_made"], player_stat["three_points_attempted"],
-                    player_stat["three_point_pct"],
-                    player_stat["two_points_made"], player_stat["two_points_attempted"],
-                    player_stat["two_point_pct"],
-                    player_stat["free_throws_made"], player_stat["free_throws_attempted"],
-                    player_stat["free_throw_pct"],
-                    player_stat["offensive_rebounds"], player_stat["defensive_rebounds"],
-                    player_stat["total_rebounds"],
-                    player_stat["assists"], player_stat["turnovers"], player_stat["steals"],
-                    player_stat["blocks"], player_stat["blocks_received"],
-                    player_stat["personal_fouls"], player_stat["fouls_received"],
-                    player_stat["plus_minus"], player_stat["efficiency_rating"],
-                    player_stat["true_shooting_pct"], player_stat["effective_fg_pct"],
-                    player_stat["offensive_rating"], player_stat["player_efficiency_rating"],
-                    player_stat["turnover_pct"], player_stat["offensive_rebound_pct"],
-                    player_stat["defensive_rebound_pct"], player_stat["free_throw_rate"],
-                    player_stat["assist_to_turnover_ratio"], player_stat["usage_rate"],
-                    player_stat["win_shares"], player_stat["win_shares_per_36"],
-                    player_stat["team_won"]
-                ))
+                    player_id = profile_id
+                    
+                else:
+                    # Sistema legacy: jugadores únicos por nombre
+                    player_id = self.load_player(
+                        conn,
+                        name=player_stat["name"],
+                        first_seen=game_data["game_date"],
+                        dorsal=player_stat.get("dorsal"),
+                        birth_year=player_stat.get("birth_year")
+                    )
+                
+                # Insertar estadísticas del jugador en el partido
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO player_game_stats (
+                            game_id, player_id, team_id, is_home, is_starter,
+                            age_at_game, games_played_season,
+                            minutes_played, points,
+                            field_goals_made, field_goals_attempted, field_goal_pct,
+                            three_points_made, three_points_attempted, three_point_pct,
+                            two_points_made, two_points_attempted, two_point_pct,
+                            free_throws_made, free_throws_attempted, free_throw_pct,
+                            offensive_rebounds, defensive_rebounds, total_rebounds,
+                            assists, turnovers, steals,
+                            blocks, blocks_received, personal_fouls, fouls_received,
+                            plus_minus, efficiency_rating,
+                            true_shooting_pct, effective_fg_pct, offensive_rating,
+                            player_efficiency_rating, turnover_pct,
+                            offensive_rebound_pct, defensive_rebound_pct,
+                            free_throw_rate, assist_to_turnover_ratio, usage_rate,
+                            win_shares, win_shares_per_36,
+                            team_won
+                        ) VALUES (
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        )
+                    """, (
+                        game_data["game_id"], player_id, team_id,
+                        player_stat["is_home"], player_stat["is_starter"],
+                        player_stat.get("age_at_game"),
+                        None,  # games_played_season - se calculará después en agregados
+                        player_stat["minutes_played"], player_stat["points"],
+                        player_stat["field_goals_made"], player_stat["field_goals_attempted"],
+                        player_stat["field_goal_pct"],
+                        player_stat["three_points_made"], player_stat["three_points_attempted"],
+                        player_stat["three_point_pct"],
+                        player_stat["two_points_made"], player_stat["two_points_attempted"],
+                        player_stat["two_point_pct"],
+                        player_stat["free_throws_made"], player_stat["free_throws_attempted"],
+                        player_stat["free_throw_pct"],
+                        player_stat["offensive_rebounds"], player_stat["defensive_rebounds"],
+                        player_stat["total_rebounds"],
+                        player_stat["assists"], player_stat["turnovers"], player_stat["steals"],
+                        player_stat["blocks"], player_stat["blocks_received"],
+                        player_stat["personal_fouls"], player_stat["fouls_received"],
+                        player_stat["plus_minus"], player_stat["efficiency_rating"],
+                        player_stat["true_shooting_pct"], player_stat["effective_fg_pct"],
+                        player_stat["offensive_rating"], player_stat["player_efficiency_rating"],
+                        player_stat["turnover_pct"], player_stat["offensive_rebound_pct"],
+                        player_stat["defensive_rebound_pct"], player_stat["free_throw_rate"],
+                        player_stat["assist_to_turnover_ratio"], player_stat["usage_rate"],
+                        player_stat["win_shares"], player_stat["win_shares_per_36"],
+                        player_stat["team_won"]
+                    ))
+                except Exception as insert_error:
+                    self.logger.error(f"Error insertando jugador {player_stat.get('name')}: {insert_error}")
+                    self.logger.error(f"Claves en player_stat: {list(player_stat.keys())}")
+                    raise
             
             return True
             
         except Exception as e:
             self.logger.error(f"Error cargando partido {game_data.get('game_id')}: {e}")
             return False
+    
+    # =========================================================================
+    # GESTIÓN DE PERFILES E IDENTIDADES
+    # =========================================================================
+    
+    def compute_profile_metrics(self, conn: sqlite3.Connection):
+        """
+        Calcular métricas agregadas para cada perfil de jugador.
+        
+        Args:
+            conn: Conexión SQLite
+        """
+        if not self.use_profiles:
+            return
+        
+        self.logger.info("Calculando métricas de perfiles...")
+        
+        cursor = conn.cursor()
+        
+        # Obtener todos los perfiles
+        cursor.execute("SELECT profile_id FROM player_profiles")
+        profiles = cursor.fetchall()
+        
+        for i, (profile_id,) in enumerate(profiles, 1):
+            if i % 100 == 0:
+                self.logger.info(f"  Progreso: {i}/{len(profiles)}")
+            
+            # Obtener stats del perfil
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as games_played,
+                    AVG(minutes_played) as avg_minutes,
+                    AVG(points) as avg_points,
+                    AVG(offensive_rating) as avg_offensive_rating,
+                    AVG(player_efficiency_rating) as avg_per,
+                    AVG(true_shooting_pct) as avg_ts_pct,
+                    AVG(z_offensive_rating) as avg_z_oer,
+                    AVG(z_player_efficiency_rating) as avg_z_per,
+                    AVG(z_minutes) as avg_z_minutes,
+                    AVG((offensive_rating - (SELECT AVG(offensive_rating) FROM player_game_stats WHERE player_id = ?)) * 
+                        (offensive_rating - (SELECT AVG(offensive_rating) FROM player_game_stats WHERE player_id = ?))) as var_oer,
+                    AVG((points - (SELECT AVG(points) FROM player_game_stats WHERE player_id = ?)) * 
+                        (points - (SELECT AVG(points) FROM player_game_stats WHERE player_id = ?))) as var_points
+                FROM player_game_stats
+                WHERE player_id = ?
+            """, (profile_id, profile_id, profile_id, profile_id, profile_id))
+            
+            stats = cursor.fetchone()
+            
+            if stats and stats[0] > 0:
+                # Calcular performance tier basado en z-scores
+                avg_z_oer = stats[6] if stats[6] is not None else 0
+                
+                # Calcular desviaciones estándar desde varianza
+                std_oer = (stats[9] ** 0.5) if stats[9] is not None and stats[9] > 0 else 0
+                std_points = (stats[10] ** 0.5) if stats[10] is not None and stats[10] > 0 else 0
+                
+                if avg_z_oer > 1.5:
+                    tier = 'elite'
+                elif avg_z_oer > 0.5:
+                    tier = 'very_good'
+                elif avg_z_oer > -0.5:
+                    tier = 'above_average'
+                elif avg_z_oer > -1.5:
+                    tier = 'average'
+                else:
+                    tier = 'below_average'
+                
+                # Insertar o actualizar métricas
+                cursor.execute("""
+                    INSERT OR REPLACE INTO player_profile_metrics (
+                        profile_id, games_played, avg_minutes, avg_points,
+                        avg_offensive_rating, avg_player_efficiency_rating,
+                        avg_true_shooting_pct, avg_z_offensive_rating,
+                        avg_z_player_efficiency_rating, avg_z_minutes,
+                        std_offensive_rating, std_points, performance_tier
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    profile_id, stats[0], stats[1], stats[2],
+                    stats[3], stats[4], stats[5], stats[6],
+                    stats[7], stats[8], std_oer, std_points, tier
+                ))
+        
+        conn.commit()
+        self.logger.info(f"✓ Métricas calculadas para {len(profiles)} perfiles")
+    
+    def generate_identity_candidates(
+        self,
+        conn: sqlite3.Connection,
+        min_score: float = 0.50
+    ):
+        """
+        Generar candidatos de matching entre perfiles.
+        
+        Args:
+            conn: Conexión SQLite
+            min_score: Score mínimo para considerar candidato
+        """
+        if not self.use_profiles or not self.identity_matcher:
+            return
+        
+        self.logger.info("Generando candidatos de matching de identidades...")
+        self.logger.info(f"  Threshold mínimo: {min_score}")
+        
+        candidates_count = self.identity_matcher.generate_all_candidates(min_score=min_score)
+        
+        self.logger.info(f"✓ Generados {candidates_count} candidatos")
+        
+        # Mostrar resumen de candidatos de alta confianza
+        high_confidence = self.identity_matcher.get_high_confidence_candidates(min_score=0.70)
+        
+        if high_confidence:
+            self.logger.info(f"\n  Candidatos de alta confianza (score >= 0.70): {len(high_confidence)}")
+            
+            # Mostrar top 10
+            for i, candidate in enumerate(high_confidence[:10], 1):
+                self.logger.info(f"    {i}. [{candidate['candidate_score']:.2f}] "
+                               f"{candidate['name_1']} ({candidate['season_1']}) <-> "
+                               f"{candidate['name_2']} ({candidate['season_2']})")
+    
+    def calculate_profile_potential_scores(self, conn: sqlite3.Connection):
+        """
+        Calcular scores de potencial para perfiles.
+        
+        Este score combina:
+        - Edad y proyección
+        - Tendencia de mejora
+        - Consistencia
+        - Métricas avanzadas
+        
+        Args:
+            conn: Conexión SQLite
+        """
+        if not self.use_profiles:
+            return
+        
+        self.logger.info("Calculando scores de potencial...")
+        
+        cursor = conn.cursor()
+        
+        # Obtener perfiles con métricas
+        cursor.execute("""
+            SELECT 
+                pp.profile_id,
+                pp.season,
+                pp.birth_year,
+                ppm.avg_z_offensive_rating,
+                ppm.avg_z_player_efficiency_rating,
+                ppm.std_offensive_rating,
+                ppm.std_points,
+                ppm.games_played,
+                ppm.avg_true_shooting_pct
+            FROM player_profiles pp
+            JOIN player_profile_metrics ppm ON pp.profile_id = ppm.profile_id
+        """)
+        
+        profiles = cursor.fetchall()
+        
+        for profile in profiles:
+            profile_id, season, birth_year, avg_z_oer, avg_z_per, std_oer, std_points, games_played, avg_ts_pct = profile
+            
+            # Calcular edad estimada
+            try:
+                season_year = int(season.split('/')[0])
+                age = season_year - birth_year if birth_year else None
+            except:
+                age = None
+            
+            # 1. Age projection score (0.0-1.0)
+            if age:
+                if age <= 21:
+                    age_score = 1.0  # Muy joven, alto potencial
+                elif age <= 24:
+                    age_score = 0.8
+                elif age <= 27:
+                    age_score = 0.5
+                elif age <= 30:
+                    age_score = 0.3
+                else:
+                    age_score = 0.1
+            else:
+                age_score = 0.5  # Neutral si no tenemos edad
+            
+            # 2. Performance score basado en z-scores (0.0-1.0)
+            if avg_z_oer is not None and avg_z_per is not None:
+                # Normalizar z-scores a 0-1 (asumiendo rango -3 a +3)
+                perf_score = ((avg_z_oer + avg_z_per) / 2 + 3) / 6
+                perf_score = max(0.0, min(1.0, perf_score))
+            else:
+                perf_score = 0.5
+            
+            # 3. Consistency score (bajo std = más consistente)
+            if std_oer is not None and std_oer > 0:
+                # Normalizar: std bajo = score alto
+                consistency_score = max(0.0, 1.0 - (std_oer / 50.0))
+            else:
+                consistency_score = 0.5
+            
+            # 4. Advanced metrics score (TS%)
+            if avg_ts_pct is not None:
+                # TS% > 55% es muy bueno
+                adv_metrics_score = min(1.0, avg_ts_pct / 65.0)
+            else:
+                adv_metrics_score = 0.5
+            
+            # Calcular potential score combinado
+            potential_score = (
+                0.30 * age_score +
+                0.40 * perf_score +
+                0.20 * consistency_score +
+                0.10 * adv_metrics_score
+            )
+            
+            # Determinar tier
+            if potential_score >= 0.75:
+                tier = 'very_high'
+            elif potential_score >= 0.60:
+                tier = 'high'
+            elif potential_score >= 0.45:
+                tier = 'medium'
+            elif potential_score >= 0.30:
+                tier = 'low'
+            else:
+                tier = 'very_low'
+            
+            # Flags especiales
+            is_young_talent = (age and age < 23 and perf_score >= 0.6)
+            is_consistent = (consistency_score >= 0.7 and perf_score >= 0.6)
+            
+            # Insertar score de potencial
+            cursor.execute("""
+                INSERT OR REPLACE INTO player_profile_potential (
+                    profile_id, age_projection_score, performance_trend_score,
+                    consistency_score, advanced_metrics_score, potential_score,
+                    potential_tier, is_young_talent, is_consistent_performer,
+                    season
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                profile_id, age_score, perf_score, consistency_score,
+                adv_metrics_score, potential_score, tier,
+                is_young_talent, is_consistent, season
+            ))
+        
+        conn.commit()
+        self.logger.info(f"✓ Scores de potencial calculados para {len(profiles)} perfiles")
     
     # =========================================================================
     # AGREGACIONES Y FEATURES
@@ -682,9 +1125,9 @@ class FEBDataETL:
                 avg_true_shooting_pct, avg_effective_fg_pct, avg_offensive_rating,
                 avg_player_efficiency_rating, avg_turnover_pct,
                 avg_offensive_rebound_pct, avg_defensive_rebound_pct,
-                total_win_shares, avg_win_shares_per_36,
+                avg_win_shares_per_36,
                 win_percentage
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             player_id, season, competition_id, games_played,
             date_from, date_to,
@@ -701,7 +1144,6 @@ class FEBDataETL:
             float(avg_tov_pct) if avg_tov_pct is not None else None,
             float(avg_orb_pct) if avg_orb_pct is not None else None,
             float(avg_drb_pct) if avg_drb_pct is not None else None,
-            float(total_ws),
             float(avg_ws_36) if avg_ws_36 is not None else None,
             float(win_pct)
         ))
@@ -826,13 +1268,17 @@ class FEBDataETL:
     # =========================================================================
     
     def run_full_etl(self, collections: List[str] = None, 
-                    limit: Optional[int] = None):
+                    limit: Optional[int] = None,
+                    generate_candidates: bool = True,
+                    candidate_min_score: float = 0.50):
         """
         Ejecutar el proceso ETL completo.
         
         Args:
             collections: Lista de colecciones a procesar (default: ambas)
             limit: Límite opcional de partidos por colección
+            generate_candidates: Si True, genera candidatos de matching (solo con use_profiles=True)
+            candidate_min_score: Score mínimo para generar candidatos
         """
         if collections is None:
             collections = ["all_feb_games_masc", "all_feb_games_fem"]
@@ -840,6 +1286,7 @@ class FEBDataETL:
         self.logger.info("="*70)
         self.logger.info("INICIANDO PROCESO ETL: MongoDB -> SQLite")
         self.logger.info("="*70)
+        self.logger.info(f"Modo: {'PERFILES' if self.use_profiles else 'JUGADORES ÚNICOS'}")
         
         start_time = datetime.now()
         total_games = 0
@@ -881,10 +1328,40 @@ class FEBDataETL:
             self.logger.info("\nCalculando Z-Scores y percentiles...")
             self.normalize_all_stats(conn, collections)
             
+            # Si usamos perfiles, calcular métricas y candidatos
+            if self.use_profiles:
+                self.logger.info("\n" + "="*70)
+                self.logger.info("PROCESAMIENTO DE PERFILES E IDENTIDADES")
+                self.logger.info("="*70)
+                
+                # Calcular métricas de perfiles
+                self.compute_profile_metrics(conn)
+                
+                # Calcular scores de potencial
+                self.calculate_profile_potential_scores(conn)
+                
+                # Generar candidatos de matching
+                if generate_candidates:
+                    self.generate_identity_candidates(conn, min_score=candidate_min_score)
+            
             # Estadísticas finales
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM players")
-            total_players = cursor.fetchone()[0]
+            
+            if self.use_profiles:
+                cursor.execute("SELECT COUNT(*) FROM player_profiles")
+                total_profiles = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM player_identity_candidates")
+                total_candidates = cursor.fetchone()[0]
+                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM player_identity_candidates 
+                    WHERE confidence_level IN ('high', 'very_high')
+                """)
+                high_confidence = cursor.fetchone()[0]
+            else:
+                cursor.execute("SELECT COUNT(*) FROM players")
+                total_players = cursor.fetchone()[0]
             
             cursor.execute("SELECT COUNT(*) FROM games")
             final_games = cursor.fetchone()[0]
@@ -900,7 +1377,14 @@ class FEBDataETL:
             self.logger.info("="*70)
             self.logger.info(f"Duración: {duration:.2f} segundos")
             self.logger.info(f"Partidos procesados: {final_games}")
-            self.logger.info(f"Jugadores únicos: {total_players}")
+            
+            if self.use_profiles:
+                self.logger.info(f"Perfiles de jugador: {total_profiles}")
+                self.logger.info(f"Candidatos de matching: {total_candidates}")
+                self.logger.info(f"  - Alta confianza: {high_confidence}")
+            else:
+                self.logger.info(f"Jugadores únicos: {total_players}")
+            
             self.logger.info(f"Estadísticas de jugador: {total_stats}")
             self.logger.info("="*70)
             
@@ -925,6 +1409,12 @@ def main():
     parser.add_argument('--limit', type=int, help='Limitar número de partidos por colección')
     parser.add_argument('--masc-only', action='store_true', help='Solo procesar masculino')
     parser.add_argument('--fem-only', action='store_true', help='Solo procesar femenino')
+    parser.add_argument('--legacy-mode', action='store_true', 
+                       help='Usar sistema legacy (jugadores únicos) en lugar de perfiles')
+    parser.add_argument('--no-candidates', action='store_true',
+                       help='No generar candidatos de matching automático')
+    parser.add_argument('--candidate-threshold', type=float, default=0.50,
+                       help='Score mínimo para generar candidatos (default: 0.50)')
     
     args = parser.parse_args()
     
@@ -936,8 +1426,13 @@ def main():
         collections = ["all_feb_games_fem"]
     
     # Ejecutar ETL
-    etl = FEBDataETL()
-    etl.run_full_etl(collections=collections, limit=args.limit)
+    etl = FEBDataETL(use_profiles=not args.legacy_mode)
+    etl.run_full_etl(
+        collections=collections, 
+        limit=args.limit,
+        generate_candidates=not args.no_candidates,
+        candidate_min_score=args.candidate_threshold
+    )
 
 
 if __name__ == "__main__":

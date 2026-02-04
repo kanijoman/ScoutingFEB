@@ -33,7 +33,9 @@ def paso_1_crear_esquema():
     print("PASO 1: CREACIÓN DE ESQUEMA SQLITE")
     print("="*70)
     
-    schema_manager = SQLiteSchemaManager("scouting_feb.db")
+    # Ruta relativa desde src/ hacia raíz del proyecto
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
+    schema_manager = SQLiteSchemaManager(db_path)
     success = schema_manager.create_database()
     
     if success:
@@ -46,21 +48,33 @@ def paso_1_crear_esquema():
     return True
 
 
-def paso_2_ejecutar_etl(limit=None):
+def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True, 
+                        candidate_threshold=0.50):
     """Paso 2: Ejecutar proceso ETL de MongoDB a SQLite."""
     print("\n" + "="*70)
     print("PASO 2: PROCESO ETL (MongoDB → SQLite)")
     print("="*70)
+    print(f"Modo: {'PERFILES' if use_profiles else 'JUGADORES ÚNICOS'}")
+    if use_profiles:
+        print(f"Generación de candidatos: {'Sí' if generate_candidates else 'No'}")
+        if generate_candidates:
+            print(f"Threshold de candidatos: {candidate_threshold}")
     
     try:
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
         etl = FEBDataETL(
             mongodb_uri="mongodb://localhost:27017/",
             mongodb_db="scouting_feb",
-            sqlite_path="scouting_feb.db"
+            sqlite_path=db_path,
+            use_profiles=use_profiles
         )
         
         # Ejecutar ETL completo
-        etl.run_full_etl(limit=limit)
+        etl.run_full_etl(
+            limit=limit,
+            generate_candidates=generate_candidates,
+            candidate_min_score=candidate_threshold
+        )
         
         print("✓ ETL completado exitosamente")
         return True
@@ -80,8 +94,9 @@ def paso_3_entrenar_modelos():
         # Crear directorio para modelos
         Path("models").mkdir(exist_ok=True)
         
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
         model = PlayerPerformanceModel(
-            db_path="scouting_feb.db",
+            db_path=db_path,
             model_dir="models"
         )
         
@@ -146,15 +161,25 @@ def paso_5_hacer_predicciones(model):
     try:
         import sqlite3
         
-        conn = sqlite3.connect("scouting_feb.db")
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         # Obtener algunos jugadores de ejemplo (con más partidos)
+        # Contar partidos directamente desde player_game_stats
+        # Filtrar jugadores sin nombre (datos corruptos en MongoDB)
         cursor.execute("""
-            SELECT DISTINCT p.player_id, p.name, p.total_games
-            FROM players p
-            WHERE p.total_games >= 10
-            ORDER BY p.total_games DESC
+            SELECT 
+                pgs.player_id,
+                COALESCE(pp.name_raw, p.name) as name,
+                COUNT(DISTINCT pgs.game_id) as total_games
+            FROM player_game_stats pgs
+            LEFT JOIN player_profiles pp ON pgs.player_id = pp.profile_id
+            LEFT JOIN players p ON pgs.player_id = p.player_id
+            WHERE COALESCE(pp.name_raw, p.name, '') != ''
+            GROUP BY pgs.player_id
+            HAVING COUNT(DISTINCT pgs.game_id) >= 10
+            ORDER BY total_games DESC
             LIMIT 5
         """)
         
@@ -205,21 +230,30 @@ def main():
     ╚════════════════════════════════════════════════════════════════════╝
     
     Este script ejecuta:
-    1. Creación del esquema SQLite
-    2. Proceso ETL (MongoDB → SQLite)
-    3. Entrenamiento de modelos XGBoost
-    4. Análisis de interpretabilidad con SHAP
-    5. Predicciones de ejemplo
+    1. Creación del esquema SQLite (con tablas de perfiles)
+    2. Proceso ETL (MongoDB → SQLite) con gestión de identidades
+    3. Generación de candidatos de matching automático
+    4. Entrenamiento de modelos XGBoost
+    5. Análisis de interpretabilidad con SHAP
+    6. Predicciones de ejemplo
     """)
     
     import argparse
     parser = argparse.ArgumentParser(description='Pipeline completo ETL + ML')
     parser.add_argument('--skip-etl', action='store_true', 
                        help='Saltar ETL (usar datos existentes)')
+    parser.add_argument('--etl-only', action='store_true',
+                       help='Solo ejecutar ETL (sin entrenamiento ni predicciones)')
     parser.add_argument('--skip-training', action='store_true',
                        help='Saltar entrenamiento (cargar modelos existentes)')
     parser.add_argument('--limit', type=int,
                        help='Limitar partidos en ETL para pruebas rápidas')
+    parser.add_argument('--legacy-mode', action='store_true',
+                       help='Usar sistema legacy (jugadores únicos) sin perfiles')
+    parser.add_argument('--no-candidates', action='store_true',
+                       help='No generar candidatos de matching automático')
+    parser.add_argument('--candidate-threshold', type=float, default=0.50,
+                       help='Score mínimo para generar candidatos (default: 0.50)')
     
     args = parser.parse_args()
     
@@ -244,11 +278,35 @@ def main():
     
     # Paso 2: ETL
     if not args.skip_etl:
-        if not paso_2_ejecutar_etl(limit=args.limit):
+        if not paso_2_ejecutar_etl(
+            limit=args.limit,
+            use_profiles=not args.legacy_mode,
+            generate_candidates=not args.no_candidates,
+            candidate_threshold=args.candidate_threshold
+        ):
             logger.error("✗ Error en Paso 2 (ETL)")
             return
     else:
         logger.info("⊗ Saltando ETL (usando datos existentes)")
+    
+    # Si solo queremos ETL, terminar aquí
+    if args.etl_only:
+        print("\n" + "="*70)
+        print("✓ ETL COMPLETADO EXITOSAMENTE")
+        print("="*70)
+        print(f"""
+Archivo generado:
+  • scouting_feb.db              - Base de datos SQLite actualizada
+
+Próximos pasos:
+  • Verificar birth_year corregidos:
+      python check_birth_year_sqlite.py
+  • Entrenar modelos ML:
+      python src/run_ml_pipeline.py --skip-etl
+  • Revisar candidatos de identidades:
+      python src/ml/identity_manager_cli.py list-candidates
+        """)
+        return
     
     # Paso 3: Entrenar modelos
     if not args.skip_training:
@@ -258,7 +316,8 @@ def main():
             return
     else:
         logger.info("⊗ Saltando entrenamiento (cargando modelos existentes)")
-        model = PlayerPerformanceModel(db_path="scouting_feb.db")
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
+        model = PlayerPerformanceModel(db_path=db_path)
         try:
             model.load_model("points_predictor")
             model.load_model("efficiency_predictor")
@@ -283,8 +342,15 @@ Archivos generados:
   • scouting_feb.db              - Base de datos SQLite
   • models/*.joblib              - Modelos XGBoost entrenados
   • models/*_metadata.json       - Metadata de modelos
-  • models/*_shap_summary.png    - Gráficos de interpretabilidad
+  • Revisar candidatos de identidades (si usaste perfiles):
+      python src/ml/identity_manager_cli.py list-candidates
+  • Ver jugadores con alto potencial (si usaste perfiles):
+      python src/ml/identity_manager_cli.py potential
+  • Usar modelos para predicciones en producción
+  • Reentrenar periódicamente con nuevos datos
 
+Documentación del sistema de identidades:
+  • PLAYER_IDENTITY_SYSTEM.md
 Próximos pasos:
   • Analizar gráficos SHAP en models/
   • Explorar base de datos SQLite con herramientas SQL
