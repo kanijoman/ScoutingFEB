@@ -410,6 +410,195 @@ CREATE TABLE IF NOT EXISTS player_targets (
 );
 
 -- ============================================================================
+-- SISTEMA DE GESTIÓN DE IDENTIDADES DE JUGADORES
+-- ============================================================================
+
+-- Perfiles de jugadores (apariciones únicas por nombre+equipo+temporada)
+-- Un jugador real puede tener múltiples perfiles si cambia de ID FEB o formato de nombre
+CREATE TABLE IF NOT EXISTS player_profiles (
+    profile_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- Identificación básica
+    feb_id TEXT,  -- ID FEB (puede cambiar entre temporadas, NULL si no disponible)
+    name_raw TEXT NOT NULL,  -- Nombre tal como aparece en los datos
+    name_normalized TEXT NOT NULL,  -- Nombre normalizado para matching
+    
+    -- Contexto de aparición
+    team_id INTEGER,
+    season TEXT NOT NULL,
+    competition_id INTEGER,
+    
+    -- Metadata temporal
+    first_game_date TEXT,
+    last_game_date TEXT,
+    total_games INTEGER DEFAULT 0,
+    
+    -- Información disponible
+    birth_year INTEGER,  -- Año de nacimiento si está disponible
+    dorsal TEXT,
+    
+    -- Estado de consolidación
+    is_consolidated BOOLEAN DEFAULT 0,  -- Si está confirmado como perfil único
+    consolidated_player_id INTEGER,  -- Referencia al jugador consolidado (NULL si no confirmado)
+    
+    -- Timestamps
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (team_id) REFERENCES teams(team_id),
+    FOREIGN KEY (competition_id) REFERENCES competitions(competition_id),
+    FOREIGN KEY (consolidated_player_id) REFERENCES players(player_id),
+    
+    -- Un perfil es único por nombre+equipo+temporada
+    UNIQUE(name_normalized, team_id, season)
+);
+
+-- Candidatos de matching (posibles perfiles del mismo jugador)
+CREATE TABLE IF NOT EXISTS player_identity_candidates (
+    candidate_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- Perfiles a comparar
+    profile_id_1 INTEGER NOT NULL,
+    profile_id_2 INTEGER NOT NULL,
+    
+    -- Scoring de similitud (0.0 - 1.0)
+    name_match_score REAL NOT NULL,  -- Similitud de nombres (40%)
+    age_match_score REAL,  -- Similitud de edad (30%)
+    team_overlap_score REAL,  -- Solapamiento de equipos (20%)
+    timeline_fit_score REAL,  -- Continuidad temporal (10%)
+    
+    -- Score total combinado
+    candidate_score REAL NOT NULL,  -- Suma ponderada de los scores anteriores
+    
+    -- Estado de validación
+    validation_status TEXT CHECK(validation_status IN 
+        ('pending', 'confirmed', 'rejected', 'unsure')) DEFAULT 'pending',
+    validated_by TEXT,  -- Usuario que validó
+    validated_at TEXT,
+    validation_notes TEXT,
+    
+    -- Metadata
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    confidence_level TEXT CHECK(confidence_level IN 
+        ('very_high', 'high', 'medium', 'low')) DEFAULT 'low',
+    
+    FOREIGN KEY (profile_id_1) REFERENCES player_profiles(profile_id),
+    FOREIGN KEY (profile_id_2) REFERENCES player_profiles(profile_id),
+    
+    -- Evitar duplicados (orden no importa)
+    CHECK (profile_id_1 < profile_id_2),
+    UNIQUE(profile_id_1, profile_id_2)
+);
+
+-- Histórico de confirmaciones de identidad
+CREATE TABLE IF NOT EXISTS player_identity_confirmations (
+    confirmation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- Perfiles confirmados como mismo jugador
+    profile_ids TEXT NOT NULL,  -- JSON array de profile_ids consolidados
+    consolidated_player_id INTEGER NOT NULL,
+    
+    -- Información del jugador consolidado
+    confirmed_name TEXT NOT NULL,
+    confirmed_birth_year INTEGER,
+    
+    -- Metadata de confirmación
+    confirmed_by TEXT NOT NULL,  -- Usuario/sistema que confirmó
+    confirmed_at TEXT NOT NULL,
+    confidence_level TEXT CHECK(confidence_level IN 
+        ('high', 'medium', 'low')) DEFAULT 'medium',
+    notes TEXT,
+    
+    FOREIGN KEY (consolidated_player_id) REFERENCES players(player_id)
+);
+
+-- Métricas agregadas por perfil (para scoring y análisis)
+CREATE TABLE IF NOT EXISTS player_profile_metrics (
+    metrics_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL,
+    
+    -- Estadísticas agregadas del perfil
+    games_played INTEGER DEFAULT 0,
+    avg_minutes REAL,
+    avg_points REAL,
+    avg_offensive_rating REAL,
+    avg_player_efficiency_rating REAL,
+    avg_true_shooting_pct REAL,
+    
+    -- Z-scores promedio
+    avg_z_offensive_rating REAL,
+    avg_z_player_efficiency_rating REAL,
+    avg_z_minutes REAL,
+    
+    -- Consistencia
+    std_offensive_rating REAL,
+    std_points REAL,
+    
+    -- Tendencias
+    trend_offensive_rating REAL,
+    trend_minutes REAL,
+    
+    -- Performance tier
+    performance_tier TEXT CHECK(performance_tier IN 
+        ('elite', 'very_good', 'above_average', 'average', 'below_average')),
+    
+    -- Metadata
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (profile_id) REFERENCES player_profiles(profile_id),
+    UNIQUE(profile_id)
+);
+
+-- Score de potencial por perfil (para sistema de scouting)
+CREATE TABLE IF NOT EXISTS player_profile_potential (
+    potential_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id INTEGER NOT NULL,
+    
+    -- Componentes del potential score
+    age_projection_score REAL,  -- Basado en edad y proyección
+    performance_trend_score REAL,  -- Tendencia de mejora
+    consistency_score REAL,  -- Estabilidad del rendimiento
+    advanced_metrics_score REAL,  -- Métricas avanzadas (TS%, eFG%, etc.)
+    
+    -- Score total de potencial (0.0 - 1.0)
+    potential_score REAL NOT NULL,
+    
+    -- Clasificación de potencial
+    potential_tier TEXT CHECK(potential_tier IN 
+        ('very_high', 'high', 'medium', 'low', 'very_low')),
+    
+    -- Flags especiales
+    is_young_talent BOOLEAN DEFAULT 0,  -- < 23 años con buen rendimiento
+    is_breakout_candidate BOOLEAN DEFAULT 0,  -- Tendencia muy positiva
+    is_consistent_performer BOOLEAN DEFAULT 0,  -- Bajo std, alto rendimiento
+    
+    -- Metadata
+    calculated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    season TEXT,
+    
+    FOREIGN KEY (profile_id) REFERENCES player_profiles(profile_id),
+    UNIQUE(profile_id, season)
+);
+
+-- ============================================================================
+-- ÍNDICES PARA SISTEMA DE IDENTIDADES
+-- ============================================================================
+
+CREATE INDEX IF NOT EXISTS idx_profiles_name_norm ON player_profiles(name_normalized);
+CREATE INDEX IF NOT EXISTS idx_profiles_team_season ON player_profiles(team_id, season);
+CREATE INDEX IF NOT EXISTS idx_profiles_consolidated ON player_profiles(consolidated_player_id);
+CREATE INDEX IF NOT EXISTS idx_profiles_feb_id ON player_profiles(feb_id);
+
+CREATE INDEX IF NOT EXISTS idx_candidates_score ON player_identity_candidates(candidate_score DESC);
+CREATE INDEX IF NOT EXISTS idx_candidates_status ON player_identity_candidates(validation_status);
+CREATE INDEX IF NOT EXISTS idx_candidates_profile1 ON player_identity_candidates(profile_id_1);
+CREATE INDEX IF NOT EXISTS idx_candidates_profile2 ON player_identity_candidates(profile_id_2);
+
+CREATE INDEX IF NOT EXISTS idx_profile_metrics_performance ON player_profile_metrics(performance_tier);
+CREATE INDEX IF NOT EXISTS idx_profile_potential_score ON player_profile_potential(potential_score DESC);
+CREATE INDEX IF NOT EXISTS idx_profile_potential_tier ON player_profile_potential(potential_tier);
+
+-- ============================================================================
 -- METADATOS Y TRACKING
 -- ============================================================================
 
@@ -474,11 +663,11 @@ SELECT
     pgs.stat_id,
     pgs.game_id,
     pgs.player_id,
-    p.name as player_name,
-    p.position,
-    p.height_cm,
-    p.birth_year,
-    p.years_experience,
+    COALESCE(p.name_raw, p_legacy.name) as player_name,
+    p_legacy.position,
+    p_legacy.height_cm,
+    COALESCE(p.birth_year, p_legacy.birth_year) as birth_year,
+    p_legacy.years_experience,
     
     -- Info del partido
     g.season,
@@ -487,6 +676,25 @@ SELECT
     c.gender,
     c.level,
     cl.competition_level,
+    
+    -- Stats básicas del partido (para ML)
+    pgs.age_at_game,
+    pgs.points,
+    pgs.efficiency_rating,
+    pgs.field_goal_pct,
+    pgs.three_point_pct,
+    pgs.free_throw_pct,
+    pgs.total_rebounds,
+    pgs.assists,
+    pgs.turnovers,
+    pgs.steals,
+    pgs.blocks,
+    pgs.personal_fouls,
+    pgs.plus_minus,
+    pgs.is_starter,
+    pgs.is_home,
+    pgs.team_won,
+    g.score_diff,
     
     -- Stats del partido (métricas avanzadas)
     pgs.minutes_played,
@@ -516,7 +724,21 @@ SELECT
     pgs.ts_pct_diff,
     pgs.efg_pct_diff,
     
-    -- Stats agregadas del jugador
+    -- Stats agregadas del jugador (básicas)
+    pas.avg_age,
+    pas.avg_points,
+    pas.avg_efficiency,
+    pas.avg_field_goal_pct,
+    pas.avg_three_point_pct,
+    pas.avg_total_rebounds,
+    pas.avg_assists,
+    pas.std_points,
+    pas.std_efficiency,
+    pas.trend_points,
+    pas.trend_efficiency,
+    pas.games_played as season_games_played,
+    
+    -- Stats agregadas del jugador (avanzadas)
     pas.avg_offensive_rating,
     pas.avg_player_efficiency_rating,
     pas.avg_true_shooting_pct,
@@ -561,7 +783,8 @@ SELECT
     gc.is_derby
     
 FROM player_game_stats pgs
-JOIN players p ON pgs.player_id = p.player_id
+LEFT JOIN player_profiles p ON pgs.player_id = p.profile_id
+LEFT JOIN players p_legacy ON pgs.player_id = p_legacy.player_id
 JOIN games g ON pgs.game_id = g.game_id
 JOIN competitions c ON g.competition_id = c.competition_id
 LEFT JOIN competition_levels cl ON g.competition_id = cl.competition_id AND g.season = cl.season

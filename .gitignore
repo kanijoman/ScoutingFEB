@@ -50,3 +50,31 @@ dump/
 config_local.py
 *.db
 *.sqlite
+
+# Machine Learning models (entrenados - muy pesados)
+**/models/*.joblib
+**/models/*.pkl
+**/models/*.json
+**/models/*.png
+models/
+!**/models/README.md
+
+# Temporary/diagnostic scripts
+check_*.py
+test_*.py
+drop_*.py
+inspect_*.py
+fix_*.py
+enrich_*.py
+*_temp.py
+*_backup.py
+
+# Data files
+*.csv
+data/
+datasets/
+
+# Environment variables
+.env
+.env.local
+.env.*.local

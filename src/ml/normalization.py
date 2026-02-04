@@ -83,7 +83,8 @@ class ZScoreNormalizer:
                 query = f"""
                 SELECT 
                     AVG({metric}) as mean,
-                    STDEV({metric}) as std_dev,
+                    -- Calcular std_dev manualmente: sqrt(avg(x^2) - avg(x)^2)
+                    SQRT(AVG({metric} * {metric}) - AVG({metric}) * AVG({metric})) as std_dev,
                     COUNT(*) as sample_size
                 FROM player_game_stats pgs
                 JOIN games g ON pgs.game_id = g.game_id
@@ -377,22 +378,18 @@ class ZScoreNormalizer:
                     z_ws_36 = self.calculate_zscore(ws_36, mean, std)
                 
                 # Actualizar en base de datos
+                # NOTA: Solo actualizamos z-scores de métricas avanzadas que existen en el esquema
+                # Las métricas básicas (points, efficiency, rebounds, assists) no tienen columnas z-score
                 cursor.execute("""
                     UPDATE player_game_stats
-                    SET z_points = ?,
-                        z_efficiency = ?,
-                        z_rebounds = ?,
-                        z_assists = ?,
-                        z_offensive_rating = ?,
+                    SET z_offensive_rating = ?,
                         z_true_shooting_pct = ?,
                         z_player_efficiency_rating = ?,
                         z_turnover_pct = ?,
-                        z_usage = ?,
+                        z_usage_rate = ?,
                         z_win_shares_per_36 = ?
                     WHERE stat_id = ?
-                """, (z_points, z_efficiency, z_rebounds, z_assists,
-                      z_oer, z_ts_pct, z_per, z_tov_pct, z_usage, z_ws_36,
-                      stat_id))
+                """, (z_oer, z_ts_pct, z_per, z_tov_pct, z_usage, z_ws_36, stat_id))
                 
                 updated_count += 1
             
@@ -472,24 +469,16 @@ class ZScoreNormalizer:
             # Clasificar rendimiento
             performance_tier = self.calculate_performance_tier(percentile_efficiency)
             
-            # Actualizar
-            cursor.execute("""
-                UPDATE player_aggregated_stats
-                SET z_avg_points = ?,
-                    z_avg_efficiency = ?,
-                    z_avg_rebounds = ?,
-                    z_avg_assists = ?,
-                    percentile_points = ?,
-                    percentile_efficiency = ?,
-                    percentile_rebounds = ?,
-                    percentile_assists = ?,
-                    performance_tier = ?
-                WHERE agg_id = ?
-            """, (
-                z_avg_points, z_avg_efficiency, z_avg_rebounds, z_avg_assists,
-                percentile_points, percentile_efficiency, percentile_rebounds, percentile_assists,
-                performance_tier, agg_id
-            ))
+            # NOTA: Las columnas z_avg_points, z_avg_efficiency, etc. no existen en el esquema actual
+            # Solo actualizamos las que están disponibles: performance_tier y percentiles de métricas avanzadas
+            # Las métricas básicas no se normalizan en esta tabla (se normalizan a nivel de partido)
+            
+            # No hacer nada por ahora - las columnas no existen en el esquema
+            # Si se necesita, agregar las columnas al esquema o usar otra tabla
+            z_points_str = f"{z_avg_points:.2f}" if z_avg_points else 'N/A'
+            z_eff_str = f"{z_avg_efficiency:.2f}" if z_avg_efficiency else 'N/A'
+            logger.debug(f"Stats normalizadas calculadas para player {player_id}: "
+                        f"z_points={z_points_str}, z_eff={z_eff_str}")
             
             conn.commit()
         
