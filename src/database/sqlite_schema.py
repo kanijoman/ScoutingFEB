@@ -519,6 +519,7 @@ CREATE TABLE IF NOT EXISTS player_profile_metrics (
     
     -- Estadísticas agregadas del perfil
     games_played INTEGER DEFAULT 0,
+    total_minutes REAL,  -- Total de minutos jugados
     avg_minutes REAL,
     avg_points REAL,
     avg_offensive_rating REAL,
@@ -562,6 +563,12 @@ CREATE TABLE IF NOT EXISTS player_profile_potential (
     
     -- Score total de potencial (0.0 - 1.0)
     potential_score REAL NOT NULL,
+    base_potential_score REAL,  -- Score sin ajuste de confianza
+    confidence_score REAL,  -- Nivel de confianza de la muestra (0.0 - 1.0)
+    
+    -- Elegibilidad
+    meets_eligibility BOOLEAN DEFAULT 1,  -- Cumple requisitos mínimos
+    eligibility_notes TEXT,  -- Razones de no elegibilidad
     
     -- Clasificación de potencial
     potential_tier TEXT CHECK(potential_tier IN 
@@ -578,6 +585,49 @@ CREATE TABLE IF NOT EXISTS player_profile_potential (
     
     FOREIGN KEY (profile_id) REFERENCES player_profiles(profile_id),
     UNIQUE(profile_id, season)
+);
+
+-- Score de potencial CONSOLIDADO por jugador único (todas sus temporadas)
+CREATE TABLE IF NOT EXISTS player_career_potential (
+    career_potential_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_name TEXT NOT NULL,  -- Nombre normalizado del jugador
+    birth_year INTEGER,
+    
+    -- Análisis de carrera
+    seasons_played INTEGER,  -- Número de temporadas
+    total_games INTEGER,  -- Total de partidos en carrera
+    total_minutes REAL,  -- Total de minutos en carrera
+    first_season TEXT,  -- Primera temporada
+    last_season TEXT,  -- Última temporada (más reciente)
+    current_age INTEGER,  -- Edad actual (basada en última temporada)
+    
+    -- Scores consolidados
+    career_avg_performance REAL,  -- Performance promedio histórica
+    recent_performance REAL,  -- Performance últimas 2-3 temporadas
+    career_trajectory REAL,  -- Tendencia de mejora (0.0-1.0)
+    career_consistency REAL,  -- Consistencia entre temporadas
+    
+    -- Potential score unificado
+    unified_potential_score REAL NOT NULL,  -- Score final consolidado
+    career_confidence REAL,  -- Confianza basada en datos de carrera
+    
+    -- Clasificación
+    potential_tier TEXT CHECK(potential_tier IN 
+        ('elite', 'very_high', 'high', 'medium', 'low')),
+    
+    -- Flags especiales
+    is_rising_star BOOLEAN DEFAULT 0,  -- Mejorando consistentemente
+    is_established_talent BOOLEAN DEFAULT 0,  -- Ya consolidado
+    is_peak_performer BOOLEAN DEFAULT 0,  -- En su mejor momento
+    
+    -- Mejores temporadas (referencias)
+    best_season TEXT,  -- Temporada con mejor score
+    best_season_score REAL,
+    
+    -- Metadata
+    calculated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    
+    UNIQUE(player_name, birth_year)
 );
 
 -- ============================================================================
@@ -597,6 +647,12 @@ CREATE INDEX IF NOT EXISTS idx_candidates_profile2 ON player_identity_candidates
 CREATE INDEX IF NOT EXISTS idx_profile_metrics_performance ON player_profile_metrics(performance_tier);
 CREATE INDEX IF NOT EXISTS idx_profile_potential_score ON player_profile_potential(potential_score DESC);
 CREATE INDEX IF NOT EXISTS idx_profile_potential_tier ON player_profile_potential(potential_tier);
+CREATE INDEX IF NOT EXISTS idx_profile_confidence_score ON player_profile_potential(confidence_score DESC);
+CREATE INDEX IF NOT EXISTS idx_profile_eligibility ON player_profile_potential(meets_eligibility);
+
+CREATE INDEX IF NOT EXISTS idx_career_potential_score ON player_career_potential(unified_potential_score DESC);
+CREATE INDEX IF NOT EXISTS idx_career_potential_tier ON player_career_potential(potential_tier);
+CREATE INDEX IF NOT EXISTS idx_career_potential_name ON player_career_potential(player_name);
 
 -- ============================================================================
 -- METADATOS Y TRACKING
