@@ -48,16 +48,38 @@ dump/
 
 # Project specific
 config_local.py
+
+# Bases de datos (son datos calculados, no código fuente)
 *.db
 *.sqlite
+*.db-journal
+*.db-shm
+*.db-wal
 
-# Machine Learning models (entrenados - muy pesados)
+# Machine Learning models (son artefactos entrenados, no código fuente)
 **/models/*.joblib
 **/models/*.pkl
-**/models/*.json
+**/models/*.h5
+**/models/*.pth
+**/models/*.onnx
+models/*.joblib
+models/*.pkl
+models/*.h5
+models/*.pth
+
+# Metadata y visualizaciones de modelos
+**/models/*_metadata.json
 **/models/*.png
-models/
+**/models/*.jpg
+**/models/*.svg
+models/*_metadata.json
+models/*.png
+models/*.jpg
+models/*.svg
+
+# Mantener solo el README de instrucciones
 !**/models/README.md
+!models/README.md
 
 # Temporary/diagnostic scripts
 check_*.py
@@ -66,8 +88,27 @@ drop_*.py
 inspect_*.py
 fix_*.py
 enrich_*.py
+analyze_*.py
+investigate_*.py
+verify_*.py
+show_*.py
+migrate_*.py
+update_*.py
+cleanup_*.py
 *_temp.py
 *_backup.py
+
+# Temporary documentation
+BUGFIX_*.md
+IMPLEMENTATION_*.md
+INCREMENTAL_*.md
+ETL_*.md
+OUTLIER_*.md
+RESCRAPING_*.md
+TEAM_CONTEXT_*.md
+*_GUIDE.md
+*_STRATEGY.md
+*_SUMMARY.md
 
 # Data files
 *.csv

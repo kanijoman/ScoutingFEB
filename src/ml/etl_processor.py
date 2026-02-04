@@ -796,6 +796,7 @@ class FEBDataETL:
             cursor.execute("""
                 SELECT 
                     COUNT(*) as games_played,
+                    SUM(minutes_played) as total_minutes,
                     AVG(minutes_played) as avg_minutes,
                     AVG(points) as avg_points,
                     AVG(offensive_rating) as avg_offensive_rating,
@@ -816,11 +817,11 @@ class FEBDataETL:
             
             if stats and stats[0] > 0:
                 # Calcular performance tier basado en z-scores
-                avg_z_oer = stats[6] if stats[6] is not None else 0
+                avg_z_oer = stats[7] if stats[7] is not None else 0
                 
                 # Calcular desviaciones estándar desde varianza
-                std_oer = (stats[9] ** 0.5) if stats[9] is not None and stats[9] > 0 else 0
-                std_points = (stats[10] ** 0.5) if stats[10] is not None and stats[10] > 0 else 0
+                std_oer = (stats[10] ** 0.5) if stats[10] is not None and stats[10] > 0 else 0
+                std_points = (stats[11] ** 0.5) if stats[11] is not None and stats[11] > 0 else 0
                 
                 if avg_z_oer > 1.5:
                     tier = 'elite'
@@ -836,16 +837,16 @@ class FEBDataETL:
                 # Insertar o actualizar métricas
                 cursor.execute("""
                     INSERT OR REPLACE INTO player_profile_metrics (
-                        profile_id, games_played, avg_minutes, avg_points,
+                        profile_id, games_played, total_minutes, avg_minutes, avg_points,
                         avg_offensive_rating, avg_player_efficiency_rating,
                         avg_true_shooting_pct, avg_z_offensive_rating,
                         avg_z_player_efficiency_rating, avg_z_minutes,
                         std_offensive_rating, std_points, performance_tier
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    profile_id, stats[0], stats[1], stats[2],
-                    stats[3], stats[4], stats[5], stats[6],
-                    stats[7], stats[8], std_oer, std_points, tier
+                    profile_id, stats[0], stats[1], stats[2], stats[3],
+                    stats[4], stats[5], stats[6], stats[7],
+                    stats[8], stats[9], std_oer, std_points, tier
                 ))
         
         conn.commit()
@@ -885,6 +886,67 @@ class FEBDataETL:
                                f"{candidate['name_1']} ({candidate['season_1']}) <-> "
                                f"{candidate['name_2']} ({candidate['season_2']})")
     
+    @staticmethod
+    def calculate_confidence_multiplier(games_played: int, total_minutes: float,
+                                       avg_minutes: float) -> float:
+        """
+        Calcular multiplicador de confianza basado en muestra estadística.
+        
+        Evalúa la fiabilidad de las estadísticas de un jugador basándose en:
+        - Número de partidos jugados
+        - Total de minutos acumulados
+        - Rol en el equipo (minutos promedio)
+        
+        Args:
+            games_played: Número total de partidos
+            total_minutes: Minutos totales jugados
+            avg_minutes: Promedio de minutos por partido
+            
+        Returns:
+            float: Multiplicador entre 0.0 y 1.0
+                - 1.0 = Máxima confianza (muestra grande y representativa)
+                - 0.5 = Confianza media
+                - 0.0 = Sin confianza (muestra insuficiente)
+        """
+        # Sub-score 1: Número de partidos (0-1)
+        if games_played >= 15:
+            games_conf = 1.0
+        elif games_played >= 10:
+            games_conf = 0.9
+        elif games_played >= 8:
+            games_conf = 0.7
+        elif games_played >= 5:
+            games_conf = 0.5
+        else:
+            games_conf = 0.2  # Penalización fuerte
+        
+        # Sub-score 2: Minutos totales (0-1)
+        if total_minutes >= 200:
+            minutes_conf = 1.0
+        elif total_minutes >= 120:
+            minutes_conf = 0.8
+        elif total_minutes >= 80:
+            minutes_conf = 0.6
+        else:
+            minutes_conf = 0.3
+        
+        # Sub-score 3: Rol en equipo (minutos promedio) (0-1)
+        if avg_minutes >= 15:
+            role_conf = 1.0  # Jugador importante
+        elif avg_minutes >= 10:
+            role_conf = 0.8
+        elif avg_minutes >= 5:
+            role_conf = 0.5
+        else:
+            role_conf = 0.3  # Rol marginal
+        
+        # Combinación (peso equilibrado)
+        confidence = (0.40 * games_conf + 
+                      0.30 * minutes_conf + 
+                      0.30 * role_conf)
+        
+        return confidence
+    
     def calculate_profile_potential_scores(self, conn: sqlite3.Connection):
         """
         Calcular scores de potencial para perfiles.
@@ -895,17 +957,27 @@ class FEBDataETL:
         - Consistencia
         - Métricas avanzadas
         
+        Incluye sistema de filtros de elegibilidad y ponderación por confianza
+        para evitar sesgos por outliers con muestras pequeñas.
+        
         Args:
             conn: Conexión SQLite
         """
         if not self.use_profiles:
             return
         
+        # Constantes de filtros de elegibilidad (Fase 1: Quick Win)
+        MIN_GAMES_FOR_POTENTIAL = 8      # Mínimo 8 partidos jugados
+        MIN_TOTAL_MINUTES = 80           # Mínimo 80 minutos totales
+        MIN_AVG_MINUTES = 8              # Mínimo 8 minutos promedio por partido
+        
         self.logger.info("Calculando scores de potencial...")
+        self.logger.info(f"  Filtros de elegibilidad: games>={MIN_GAMES_FOR_POTENTIAL}, "
+                        f"total_min>={MIN_TOTAL_MINUTES}, avg_min>={MIN_AVG_MINUTES}")
         
         cursor = conn.cursor()
         
-        # Obtener perfiles con métricas
+        # Obtener perfiles con métricas (sin filtrar aún)
         cursor.execute("""
             SELECT 
                 pp.profile_id,
@@ -916,6 +988,8 @@ class FEBDataETL:
                 ppm.std_offensive_rating,
                 ppm.std_points,
                 ppm.games_played,
+                ppm.total_minutes,
+                ppm.avg_minutes,
                 ppm.avg_true_shooting_pct
             FROM player_profiles pp
             JOIN player_profile_metrics ppm ON pp.profile_id = ppm.profile_id
@@ -923,8 +997,37 @@ class FEBDataETL:
         
         profiles = cursor.fetchall()
         
+        eligible_count = 0
+        ineligible_count = 0
+        
         for profile in profiles:
-            profile_id, season, birth_year, avg_z_oer, avg_z_per, std_oer, std_points, games_played, avg_ts_pct = profile
+            (profile_id, season, birth_year, avg_z_oer, avg_z_per, std_oer, 
+             std_points, games_played, total_minutes, avg_minutes, avg_ts_pct) = profile
+            
+            # FASE 1: Evaluar elegibilidad
+            meets_eligibility = True
+            eligibility_notes = []
+            
+            if games_played < MIN_GAMES_FOR_POTENTIAL:
+                meets_eligibility = False
+                eligibility_notes.append(f"Pocos partidos ({games_played}<{MIN_GAMES_FOR_POTENTIAL})")
+            
+            if total_minutes is None or total_minutes < MIN_TOTAL_MINUTES:
+                meets_eligibility = False
+                total_min_str = f"{total_minutes:.0f}" if total_minutes else "0"
+                eligibility_notes.append(f"Pocos minutos totales ({total_min_str}<{MIN_TOTAL_MINUTES})")
+            
+            if avg_minutes is None or avg_minutes < MIN_AVG_MINUTES:
+                meets_eligibility = False
+                avg_min_str = f"{avg_minutes:.1f}" if avg_minutes else "0"
+                eligibility_notes.append(f"Rol marginal ({avg_min_str}<{MIN_AVG_MINUTES} min/partido)")
+            
+            eligibility_note_str = "; ".join(eligibility_notes) if eligibility_notes else None
+            
+            if meets_eligibility:
+                eligible_count += 1
+            else:
+                ineligible_count += 1
             
             # Calcular edad estimada
             try:
@@ -970,15 +1073,25 @@ class FEBDataETL:
             else:
                 adv_metrics_score = 0.5
             
-            # Calcular potential score combinado
-            potential_score = (
+            # Calcular potential score BASE (sin ajuste de confianza)
+            base_potential_score = (
                 0.30 * age_score +
                 0.40 * perf_score +
                 0.20 * consistency_score +
                 0.10 * adv_metrics_score
             )
             
-            # Determinar tier
+            # FASE 2: Calcular multiplicador de confianza
+            confidence_score = self.calculate_confidence_multiplier(
+                games_played=games_played or 0,
+                total_minutes=total_minutes or 0.0,
+                avg_minutes=avg_minutes or 0.0
+            )
+            
+            # Aplicar ajuste de confianza al score final
+            potential_score = base_potential_score * confidence_score
+            
+            # Determinar tier basado en score AJUSTADO
             if potential_score >= 0.75:
                 tier = 'very_high'
             elif potential_score >= 0.60:
@@ -991,25 +1104,438 @@ class FEBDataETL:
                 tier = 'very_low'
             
             # Flags especiales
-            is_young_talent = (age and age < 23 and perf_score >= 0.6)
-            is_consistent = (consistency_score >= 0.7 and perf_score >= 0.6)
+            is_young_talent = (age and age < 23 and perf_score >= 0.6 and meets_eligibility)
+            is_consistent = (consistency_score >= 0.7 and perf_score >= 0.6 and meets_eligibility)
             
-            # Insertar score de potencial
+            # Insertar score de potencial con TODOS los nuevos campos
             cursor.execute("""
                 INSERT OR REPLACE INTO player_profile_potential (
                     profile_id, age_projection_score, performance_trend_score,
-                    consistency_score, advanced_metrics_score, potential_score,
-                    potential_tier, is_young_talent, is_consistent_performer,
+                    consistency_score, advanced_metrics_score, 
+                    base_potential_score, confidence_score, potential_score,
+                    potential_tier, meets_eligibility, eligibility_notes,
+                    is_young_talent, is_consistent_performer,
                     season
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 profile_id, age_score, perf_score, consistency_score,
-                adv_metrics_score, potential_score, tier,
+                adv_metrics_score, base_potential_score, confidence_score, potential_score,
+                tier, meets_eligibility, eligibility_note_str,
                 is_young_talent, is_consistent, season
             ))
         
         conn.commit()
+        
         self.logger.info(f"✓ Scores de potencial calculados para {len(profiles)} perfiles")
+        self.logger.info(f"  ✓ Elegibles: {eligible_count} ({eligible_count/len(profiles)*100:.1f}%)")
+        self.logger.info(f"  ⚠ No elegibles: {ineligible_count} ({ineligible_count/len(profiles)*100:.1f}%)")
+    
+    def calculate_team_strength_factors(self, conn: sqlite3.Connection) -> Dict[Tuple[int, str], float]:
+        """
+        Calcular factores de ajuste por contexto de equipo.
+        
+        Para cada equipo/temporada, calcula un factor basado en win_percentage
+        normalizado por competición. Esto permite contextualizar el rendimiento
+        de jugadores según la fuerza de su equipo.
+        
+        Principio: Equipos fuertes → ligero boost (+5-8%)
+                   Equipos débiles → ligero dampening (-5-8%)
+        
+        Returns:
+            Dict[(team_id, season): team_factor] donde team_factor ∈ [0.94, 1.06]
+        """
+        cursor = conn.cursor()
+        team_factors = {}
+        
+        # Por cada competición/temporada
+        cursor.execute("""
+            SELECT DISTINCT competition_id, season
+            FROM games
+            WHERE competition_id IS NOT NULL
+        """)
+        
+        contexts = cursor.fetchall()
+        
+        for comp_id, season in contexts:
+            # Calcular win_percentage para cada equipo en esta comp/season desde games
+            cursor.execute("""
+                SELECT 
+                    t.team_id,
+                    COUNT(*) as games,
+                    CAST(SUM(CASE 
+                        WHEN (g.home_team_id = t.team_id AND g.home_score > g.away_score) OR
+                             (g.away_team_id = t.team_id AND g.away_score > g.home_score)
+                        THEN 1 ELSE 0 
+                    END) AS FLOAT) / COUNT(*) as win_pct
+                FROM teams t
+                JOIN games g ON (t.team_id = g.home_team_id OR t.team_id = g.away_team_id)
+                WHERE g.competition_id = ? AND g.season = ?
+                GROUP BY t.team_id
+                HAVING games >= 3
+            """, (comp_id, season))
+            
+            teams_data = cursor.fetchall()
+            
+            if len(teams_data) < 3:  # Muy pocos equipos, skip normalization
+                for team_id, _, _ in teams_data:
+                    team_factors[(team_id, season)] = 1.0
+                continue
+            
+            win_pcts = [w for _, _, w in teams_data]
+            
+            # Calcular media y desv. estándar
+            μ = np.mean(win_pcts)
+            σ = np.std(win_pcts)
+            
+            if σ < 0.01:  # Sin variación, todos iguales
+                for team_id, _, _ in teams_data:
+                    team_factors[(team_id, season)] = 1.0
+                continue
+            
+            # Calcular z-score y factor para cada equipo
+            α = 0.06  # Máximo ±6% de ajuste
+            
+            for team_id, _, win_pct in teams_data:
+                # Z-score normalizado
+                z = (win_pct - μ) / σ
+                
+                # Clampear para evitar extremos
+                z = np.clip(z, -2.0, 2.0)
+                
+                # Factor usando tanh para suavizar
+                # tanh(-2) ≈ -0.96, tanh(+2) ≈ +0.96
+                # Con α=0.06: factor ∈ [0.942, 1.058]
+                factor = 1.0 + α * np.tanh(z)
+                
+                team_factors[(team_id, season)] = factor
+        
+        self.logger.info(f"  Team context factors calculados para {len(team_factors)} equipos/temporadas")
+        
+        return team_factors
+    
+    def calculate_career_potential_scores(self, conn: sqlite3.Connection):
+        """
+        Calcular scores de potencial CONSOLIDADO por jugador único.
+        
+        Analiza toda la trayectoria del jugador (todas sus temporadas) y genera
+        un score unificado que considera:
+        - Rendimiento histórico promedio
+        - Tendencia de mejora/deterioro
+        - Últimas temporadas (con más peso)
+        - Consistencia a lo largo de la carrera
+        - Edad y proyección actual
+        
+        Args:
+            conn: Conexión SQLite
+        """
+        if not self.use_profiles:
+            return
+        
+        self.logger.info("Calculando scores de potencial CONSOLIDADO por jugador...")
+        
+        cursor = conn.cursor()
+        
+        # LIMPIAR DUPLICADOS PREVIOS: Eliminar todas las entradas antes de recalcular
+        # Esto evita problemas con UNIQUE constraint y NULL birth_year
+        self.logger.info("  Limpiando tabla player_career_potential...")
+        cursor.execute("DELETE FROM player_career_potential")
+        conn.commit()
+        
+        # Obtener todos los jugadores únicos (agrupados por nombre normalizado + birth_year)
+        # IMPORTANTE: Filtrar nombres vacíos/NULL para evitar agregaciones incorrectas
+        # IMPORTANTE: Usar COALESCE en birth_year para evitar duplicados por NULL
+        cursor.execute("""
+            SELECT 
+                pp.name_normalized,
+                pp.birth_year,
+                COUNT(DISTINCT pp.season) as seasons_count,
+                MIN(pp.season) as first_season,
+                MAX(pp.season) as last_season
+            FROM player_profiles pp
+            WHERE pp.name_normalized IS NOT NULL 
+              AND TRIM(pp.name_normalized) != ''
+            GROUP BY pp.name_normalized, COALESCE(pp.birth_year, -9999)
+            HAVING seasons_count >= 1  -- Al menos 1 temporada
+        """)
+        
+        players = cursor.fetchall()
+        self.logger.info(f"  Procesando {len(players)} jugadores únicos...")
+        
+        # NUEVO: Calcular team strength factors para ajuste por contexto de equipo
+        self.logger.info("  Calculando team strength factors...")
+        team_factors = self.calculate_team_strength_factors(conn)
+        
+        for player in players:
+            name_normalized, birth_year, seasons_count, first_season, last_season = player
+            
+            # Obtener todas las temporadas del jugador con sus scores Y nivel de competición
+            cursor.execute("""
+                SELECT 
+                    pp.season,
+                    pp.profile_id,
+                    pp.team_id,
+                    ppm.games_played,
+                    ppm.total_minutes,
+                    ppm.avg_minutes,
+                    ppp.base_potential_score,
+                    ppp.potential_score,
+                    ppp.confidence_score,
+                    ppp.meets_eligibility,
+                    ppm.avg_z_offensive_rating,
+                    ppm.avg_z_player_efficiency_rating,
+                    COALESCE(cl.competition_level, 2) as competition_level
+                FROM player_profiles pp
+                JOIN player_profile_metrics ppm ON pp.profile_id = ppm.profile_id
+                LEFT JOIN player_profile_potential ppp ON pp.profile_id = ppp.profile_id
+                LEFT JOIN competition_levels cl ON pp.competition_id = cl.competition_id AND pp.season = cl.season
+                WHERE pp.name_normalized = ?
+                    AND (pp.birth_year = ? OR pp.birth_year IS NULL)
+                ORDER BY pp.season DESC
+            """, (name_normalized, birth_year))
+            
+            season_data = cursor.fetchall()
+            
+            if not season_data:
+                continue
+            
+            # Calcular edad actual (basada en última temporada)
+            try:
+                last_season_year = int(last_season.split('/')[0])
+                current_age = last_season_year - birth_year if birth_year else None
+            except:
+                current_age = None
+            
+            # Métricas de carrera
+            total_games = sum(s[2] for s in season_data if s[2])
+            total_minutes = sum(s[3] for s in season_data if s[3])
+            
+            # AGREGACIÓN POR TEMPORADA: Si un jugador tiene múltiples perfiles en la misma temporada
+            # (por jugar en varios equipos/competiciones), AGREGAR sumando partidos/minutos y 
+            # promediando scores ponderado por minutos Y nivel de competición.
+            # IMPORTANTE: Aplicar multiplicador por nivel para valorar más las competiciones fuertes.
+            # IMPORTANTE: Aplicar team context factor para ajustar por fuerza del equipo.
+            seasons_aggregated = {}
+            for s in season_data:
+                season, profile_id, team_id, games, minutes, avg_min, base_score, pot_score, conf, eligible, off_rat, per, comp_level = s
+                
+                # Solo considerar perfiles elegibles con datos válidos
+                if not eligible or pot_score is None or minutes is None or minutes == 0:
+                    continue
+                
+                # NUEVO: Obtener team context factor
+                # Este ajusta el rendimiento según la fuerza del equipo
+                # Equipos top → ligero boost (+5-8%), equipos débiles → ligero dampening (-5-8%)
+                team_factor = team_factors.get((team_id, season), 1.0)
+                
+                # Aplicar team context SOLO a las métricas de rendimiento (no a trajectory, age, etc)
+                # Esto evita inflar/penalizar excesivamente
+                adjusted_off_rat = off_rat * team_factor if off_rat is not None else None
+                adjusted_per = per * team_factor if per is not None else None
+                
+                # NOTA: pot_score ya fue calculado previamente, no lo ajustamos directamente
+                # El ajuste se aplicará en agregación de carrera (usando las z-scores ajustadas)
+                # Por ahora mantenemos pot_score original para la agregación por temporada
+                
+                # Multiplicador por nivel de competición
+                # Nivel 3 (LF ENDESA, máxima categoría) = 1.0
+                # Nivel 2 (Primera División regional) = 0.90
+                # Nivel 1 (LF CHALLENGE, segunda categoría nacional) = 0.85
+                # Nivel 0 o desconocido = 0.80
+                if comp_level == 3:
+                    level_multiplier = 1.0
+                elif comp_level == 2:
+                    level_multiplier = 0.90
+                elif comp_level == 1:
+                    level_multiplier = 0.85
+                else:
+                    level_multiplier = 0.80
+                
+                # Score ajustado por nivel de competición Y team context
+                # El team_factor ya está implícito en el pot_score a través de las métricas
+                # pero para ser conservadores, aplicamos un factor reducido al score final
+                team_adjusted_score = pot_score * (1.0 + 0.5 * (team_factor - 1.0))  # 50% del ajuste
+                adjusted_score = team_adjusted_score * level_multiplier
+                
+                if season not in seasons_aggregated:
+                    seasons_aggregated[season] = {
+                        'games': games or 0,
+                        'minutes': minutes,
+                        'weighted_score_sum': adjusted_score * minutes,
+                        'profiles': 1,
+                        'max_level': comp_level  # Trackear el nivel máximo jugado
+                    }
+                else:
+                    # Agregar: sumar partidos, minutos y scores ponderados
+                    seasons_aggregated[season]['games'] += (games or 0)
+                    seasons_aggregated[season]['minutes'] += minutes
+                    seasons_aggregated[season]['weighted_score_sum'] += (adjusted_score * minutes)
+                    seasons_aggregated[season]['profiles'] += 1
+                    seasons_aggregated[season]['max_level'] = max(seasons_aggregated[season]['max_level'], comp_level)
+            
+            if not seasons_aggregated:
+                # Si no hay temporadas elegibles, skip este jugador
+                continue
+            
+            # Calcular score promedio ponderado por temporada
+            eligible_seasons = []
+            for season, data in sorted(seasons_aggregated.items(), reverse=True):
+                avg_score = data['weighted_score_sum'] / data['minutes']
+                eligible_seasons.append({
+                    'season': season,
+                    'games': data['games'],
+                    'minutes': data['minutes'],
+                    'score': avg_score,
+                    'profiles': data['profiles']  # Info: cuántos equipos jugó
+                })
+            
+            # 1. Career Average Performance (promedio histórico)
+            valid_perf_scores = [s['score'] for s in eligible_seasons]
+            career_avg_performance = np.mean(valid_perf_scores) if valid_perf_scores else 0.5
+            
+            # 2. Recent Performance (últimas 2-3 temporadas elegibles)
+            recent_seasons = eligible_seasons[:min(3, len(eligible_seasons))]
+            recent_perf_scores = [s['score'] for s in recent_seasons]
+            recent_performance = np.mean(recent_perf_scores) if recent_perf_scores else career_avg_performance
+            
+            # 3. Career Trajectory (tendencia de mejora)
+            if len(valid_perf_scores) >= 3:
+                # Regresión lineal simple sobre scores a lo largo del tiempo
+                x = np.arange(len(valid_perf_scores))
+                y = np.array(valid_perf_scores)
+                slope = np.polyfit(x, y, 1)[0] if len(x) > 1 else 0
+                
+                # Normalizar pendiente a 0-1
+                # slope > 0 = mejorando, slope < 0 = empeorando
+                # Mapear pendiente típica (-0.1 a +0.1) a rango 0-1
+                trajectory_raw = slope * 5 + 0.5  # Amplificar y centrar
+                career_trajectory = max(0.0, min(1.0, trajectory_raw))
+            elif len(valid_perf_scores) == 2:
+                # Solo 2 temporadas: comparar directamente
+                if valid_perf_scores[0] > valid_perf_scores[1]:
+                    career_trajectory = 0.7  # Mejorando
+                elif valid_perf_scores[0] < valid_perf_scores[1]:
+                    career_trajectory = 0.3  # Empeorando
+                else:
+                    career_trajectory = 0.5  # Estable
+            else:
+                career_trajectory = 0.5  # No hay suficiente histórico
+            
+            # AJUSTE: Si performance reciente es baja (<0.5), penalizar trayectoria
+            # No tiene sentido dar alta trayectoria si el rendimiento actual es malo
+            if recent_performance < 0.5:
+                career_trajectory = min(career_trajectory, 0.4)  # Cap máximo 0.4
+            
+            # 4. Career Consistency (consistencia entre temporadas)
+            if len(valid_perf_scores) >= 2:
+                std_career = np.std(valid_perf_scores)
+                career_consistency = max(0.0, 1.0 - (std_career / 0.5))  # Normalizar
+            else:
+                career_consistency = 0.5
+            
+            # 5. Age Projection Score (igual que antes pero con edad actual)
+            if current_age:
+                if current_age <= 21:
+                    age_score = 1.0
+                elif current_age <= 24:
+                    age_score = 0.8
+                elif current_age <= 27:
+                    age_score = 0.5
+                elif current_age <= 30:
+                    age_score = 0.3
+                else:
+                    age_score = 0.1
+            else:
+                age_score = 0.5
+            
+            # 6. Career Confidence (basado en cantidad de datos)
+            # Más temporadas + más partidos = mayor confianza
+            if seasons_count >= 4 and total_games >= 60:
+                career_confidence = 1.0
+            elif seasons_count >= 3 and total_games >= 40:
+                career_confidence = 0.9
+            elif seasons_count >= 2 and total_games >= 20:
+                career_confidence = 0.8
+            elif seasons_count >= 1 and total_games >= 10:
+                career_confidence = 0.6
+            else:
+                career_confidence = 0.4
+            
+            # CALCULAR UNIFIED POTENTIAL SCORE
+            # Ponderación AJUSTADA:
+            # - 40% Performance reciente (MUY importante - refleja estado actual)
+            # - 20% Trayectoria de mejora (tendencia)
+            # - 10% Performance histórica (reducido - pasado menos relevante)
+            # - 10% Edad/proyección (reducido - ser joven no garantiza potencial)
+            # - 15% Consistencia
+            # - 5% Confianza de datos
+            
+            unified_score = (
+                0.40 * recent_performance +
+                0.20 * career_trajectory +
+                0.10 * career_avg_performance +
+                0.10 * age_score +
+                0.15 * career_consistency +
+                0.05 * career_confidence
+            )
+            
+            # Determinar tier
+            if unified_score >= 0.70:
+                tier = 'elite'
+            elif unified_score >= 0.60:
+                tier = 'very_high'
+            elif unified_score >= 0.50:
+                tier = 'high'
+            elif unified_score >= 0.40:
+                tier = 'medium'
+            else:
+                tier = 'low'
+            
+            # Flags especiales
+            is_rising_star = (
+                career_trajectory >= 0.7 and
+                current_age and current_age <= 24 and
+                recent_performance >= 0.5
+            )
+            
+            is_established_talent = (
+                seasons_count >= 3 and
+                career_avg_performance >= 0.55 and
+                career_consistency >= 0.7
+            )
+            
+            is_peak_performer = (
+                recent_performance >= 0.6 and
+                recent_performance > career_avg_performance and
+                current_age and 24 <= current_age <= 28
+            )
+            
+            # Encontrar mejor temporada
+            best_season_data = max(eligible_seasons, key=lambda s: s['score'])
+            best_season = best_season_data['season']
+            best_season_score = best_season_data['score']
+            
+            # Insertar en base de datos
+            cursor.execute("""
+                INSERT INTO player_career_potential (
+                    player_name, birth_year, seasons_played, total_games, total_minutes,
+                    first_season, last_season, current_age,
+                    career_avg_performance, recent_performance, career_trajectory,
+                    career_consistency, unified_potential_score, career_confidence,
+                    potential_tier, is_rising_star, is_established_talent, is_peak_performer,
+                    best_season, best_season_score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                name_normalized, birth_year, seasons_count, total_games, total_minutes,
+                first_season, last_season, current_age,
+                career_avg_performance, recent_performance, career_trajectory,
+                career_consistency, unified_score, career_confidence,
+                tier, is_rising_star, is_established_talent, is_peak_performer,
+                best_season, best_season_score
+            ))
+        
+        conn.commit()
+        self.logger.info(f"✓ Scores de potencial consolidado calculados para {len(players)} jugadores únicos")
+
     
     # =========================================================================
     # AGREGACIONES Y FEATURES
