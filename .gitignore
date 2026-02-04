@@ -52,10 +52,12 @@ config_local.py
 *.sqlite
 
 # Machine Learning models (entrenados - muy pesados)
-models/*.joblib
-models/*.pkl
-models/*.json
-models/*.png
+**/models/*.joblib
+**/models/*.pkl
+**/models/*.json
+**/models/*.png
+models/
+!**/models/README.md
 
 # Temporary/diagnostic scripts
 check_*.py
