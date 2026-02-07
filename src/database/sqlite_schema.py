@@ -526,6 +526,17 @@ CREATE TABLE IF NOT EXISTS player_profile_metrics (
     avg_player_efficiency_rating REAL,
     avg_true_shooting_pct REAL,
     
+    -- ✨ NUEVO: Estadísticas normalizadas per-36 minutos
+    pts_per_36 REAL,
+    ast_per_36 REAL,
+    reb_per_36 REAL,
+    stl_per_36 REAL,
+    blk_per_36 REAL,
+    tov_per_36 REAL,
+    fgm_per_36 REAL,
+    fga_per_36 REAL,
+    fg3m_per_36 REAL,
+    
     -- Z-scores promedio
     avg_z_offensive_rating REAL,
     avg_z_player_efficiency_rating REAL,
@@ -534,10 +545,26 @@ CREATE TABLE IF NOT EXISTS player_profile_metrics (
     -- Consistencia
     std_offensive_rating REAL,
     std_points REAL,
+    cv_points REAL,  -- ✨ NUEVO: Coeficiente de variación = std/avg
+    stability_index REAL,  -- ✨ NUEVO: std / sqrt(games)
     
     -- Tendencias
     trend_offensive_rating REAL,
     trend_minutes REAL,
+    
+    -- ✨ NUEVO: Rolling windows (últimos N partidos)
+    last_5_games_pts REAL,
+    last_5_games_oer REAL,
+    last_10_games_pts REAL,
+    last_10_games_oer REAL,
+    trend_points REAL,  -- Pendiente de últimos 10 partidos
+    momentum_index REAL,  -- avg(last5) - avg(last10)
+    
+    -- ✨ NUEVO: Ratios jugadora/equipo
+    player_pts_share REAL,  -- % de puntos del equipo
+    player_usage_share REAL,  -- usage vs promedio del equipo
+    efficiency_vs_team_avg REAL,  -- TS% vs TS% del equipo
+    minutes_share REAL,  -- % de minutos del equipo
     
     -- Performance tier
     performance_tier TEXT CHECK(performance_tier IN 

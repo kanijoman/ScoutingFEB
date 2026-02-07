@@ -495,14 +495,21 @@ def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] =
     """
     if default_levels is None:
         # Configuración por defecto para competiciones FEB
+        # IMPORTANTE: Los nombres deben coincidir EXACTAMENTE con los de la base de datos
         default_levels = {
+            # Masculino
             'ACB': 1,
             'LEB ORO': 2,
             'LEB PLATA': 3,
             'EBA': 4,
+            # Femenino (nombres reales en la BD)
+            'LF ENDESA': 1,  # Primera división - máximo nivel
+            'LF CHALLENGE': 2,  # Segunda división (desde 2021/22)
+            'L.F.-2': 2,  # Segunda división hasta 2020/21, luego nivel 3
+            # Nombres alternativos
             'LIGA FEMENINA': 1,
-            'LIGA FEMENINA 2': 2,  # Era nivel 2 hasta ~2020
-            'LIGA CHALLENGE': 2,  # Creada ~2020, nivel 2
+            'LIGA FEMENINA 2': 2,
+            'LIGA CHALLENGE': 2,
             'PRIMERA FEB': 3,
         }
     
@@ -520,22 +527,57 @@ def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] =
         rows = cursor.fetchall()
         
         for comp_id, comp_name, season in rows:
-            # Buscar nivel por defecto
-            level = default_levels.get(comp_name.upper(), 4)  # Default nivel 4
+            # Buscar nivel por defecto (case-insensitive)
+            level = None
+            weight = 1.0
+            notes = None
             
-            # Ajustar LF2 después de la Liga Challenge
-            if comp_name.upper() == 'LIGA FEMENINA 2':
-                # Si es después de 2020, cambiar a nivel 3
-                season_year = int(season.split('-')[0])
-                if season_year >= 2020:
-                    level = 3
+            # Buscar por nombre exacto (mayúsculas)
+            for key, val in default_levels.items():
+                if comp_name.upper() == key.upper():
+                    level = val
+                    break
+            
+            # Si no encontró, usar nivel 4 por defecto
+            if level is None:
+                level = 4
+            
+            # REGLA ESPECIAL: L.F.-2 cambió de nivel 2 a 3 en temporada 2021/2022
+            if comp_name == 'L.F.-2':
+                # Parsear año de temporada (formato: "2001/2002")
+                try:
+                    season_year = int(season.split('/')[0])
+                    if season_year >= 2021:
+                        level = 3
+                        weight = 1.0
+                        notes = 'Tercera división (después de reforma 2021/22)'
+                    else:
+                        level = 2
+                        weight = 1.25
+                        notes = 'Segunda división (antes de reforma 2021/22)'
+                except (ValueError, IndexError):
+                    pass  # Mantener nivel por defecto
+            
+            # Asignar pesos y descripciones según nivel
+            if level == 1:
+                weight = 1.5
+                level_desc = f'Nivel 1 - {comp_name} - Primera división'
+            elif level == 2:
+                weight = 1.25
+                level_desc = f'Nivel 2 - {comp_name} - Segunda división'
+            elif level == 3:
+                weight = 1.0
+                level_desc = f'Nivel 3 - {comp_name} - Tercera división'
+            else:
+                weight = 1.0
+                level_desc = f'Nivel {level} - {comp_name}'
             
             # Insertar o ignorar si ya existe
             cursor.execute("""
                 INSERT OR IGNORE INTO competition_levels 
-                (competition_id, season, competition_level, weight, level_description)
-                VALUES (?, ?, ?, 1.0, ?)
-            """, (comp_id, season, level, f"Nivel {level}"))
+                (competition_id, season, competition_level, weight, level_description, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (comp_id, season, level, weight, level_desc, notes))
         
         conn.commit()
     
