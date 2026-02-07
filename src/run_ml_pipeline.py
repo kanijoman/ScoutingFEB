@@ -49,7 +49,7 @@ def paso_1_crear_esquema():
 
 
 def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True, 
-                        candidate_threshold=0.50):
+                        candidate_threshold=0.50, consolidate_identities=True):
     """Paso 2: Ejecutar proceso ETL de MongoDB a SQLite."""
     print("\n" + "="*70)
     print("PASO 2: PROCESO ETL (MongoDB → SQLite)")
@@ -59,6 +59,7 @@ def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True,
         print(f"Generación de candidatos: {'Sí' if generate_candidates else 'No'}")
         if generate_candidates:
             print(f"Threshold de candidatos: {candidate_threshold}")
+        print(f"Consolidación de identidades: {'Sí' if consolidate_identities else 'No'}")
     
     try:
         db_path = os.path.join(os.path.dirname(__file__), '..', 'scouting_feb.db')
@@ -76,7 +77,16 @@ def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True,
             candidate_min_score=candidate_threshold
         )
         
-        print("✓ ETL completado exitosamente")
+        # Consolidar identidades si está habilitado
+        if consolidate_identities and use_profiles:
+            print("\n" + "="*70)
+            print("CONSOLIDACIÓN DE IDENTIDADES")
+            print("="*70)
+            
+            from ml.consolidate_identities import consolidate_identities as consolidate_func
+            consolidate_func(db_path, min_score=0.95)
+        
+        print("\n✓ ETL completado exitosamente")
         return True
         
     except Exception as e:
@@ -254,6 +264,8 @@ def main():
                        help='No generar candidatos de matching automático')
     parser.add_argument('--candidate-threshold', type=float, default=0.50,
                        help='Score mínimo para generar candidatos (default: 0.50)')
+    parser.add_argument('--no-consolidate', action='store_true',
+                       help='No consolidar identidades automáticamente después del ETL')
     
     args = parser.parse_args()
     
@@ -282,7 +294,8 @@ def main():
             limit=args.limit,
             use_profiles=not args.legacy_mode,
             generate_candidates=not args.no_candidates,
-            candidate_threshold=args.candidate_threshold
+            candidate_threshold=args.candidate_threshold,
+            consolidate_identities=not args.no_consolidate
         ):
             logger.error("✗ Error en Paso 2 (ETL)")
             return
@@ -297,6 +310,7 @@ def main():
         print(f"""
 Archivo generado:
   • scouting_feb.db              - Base de datos SQLite actualizada
+  • consolidated_player_id       - Identidades consolidadas para ML
 
 Próximos pasos:
   • Verificar birth_year corregidos:

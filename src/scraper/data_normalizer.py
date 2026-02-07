@@ -291,27 +291,29 @@ class DataNormalizer:
         if "games_played" not in player:
             player["games_played"] = 0
         
-        # Ensure numeric fields
-        numeric_fields = [
-            "points", "field_goals_made", "field_goals_attempted",
-            "two_points_made", "two_points_attempted",
-            "three_points_made", "three_points_attempted",
-            "free_throws_made", "free_throws_attempted",
-            "offensive_rebounds", "defensive_rebounds", "total_rebounds",
-            "assists", "steals", "turnovers", "blocks", "blocks_received",
-            "personal_fouls", "fouls_received", "efficiency"
-        ]
-        
-        for field in numeric_fields:
-            if field in player:
-                # Convert to int if it's a string number
-                try:
-                    if isinstance(player[field], str):
-                        player[field] = int(player[field]) if player[field].isdigit() else 0
-                except (ValueError, AttributeError):
+        # Ensure numeric fields ONLY for legacy format
+        # Modern format uses FEB keys (pts, p1m, p2m, p3m, etc.) and should not have these fields
+        if is_legacy:
+            numeric_fields = [
+                "points", "field_goals_made", "field_goals_attempted",
+                "two_points_made", "two_points_attempted",
+                "three_points_made", "three_points_attempted",
+                "free_throws_made", "free_throws_attempted",
+                "offensive_rebounds", "defensive_rebounds", "total_rebounds",
+                "assists", "steals", "turnovers", "blocks", "blocks_received",
+                "personal_fouls", "fouls_received", "efficiency"
+            ]
+            
+            for field in numeric_fields:
+                if field in player:
+                    # Convert to int if it's a string number
+                    try:
+                        if isinstance(player[field], str):
+                            player[field] = int(player[field]) if player[field].isdigit() else 0
+                    except (ValueError, AttributeError):
+                        player[field] = 0
+                else:
                     player[field] = 0
-            else:
-                player[field] = 0
         
         # Handle plus_minus separately (can be negative)
         if "plus_minus" in player:

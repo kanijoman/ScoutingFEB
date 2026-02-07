@@ -261,22 +261,35 @@ class FEBDataETL:
         elif isinstance(time_str, str) and time_str.isdigit():
             minutes_played = safe_int(time_str) / 60.0
         
-        # Calcular porcentajes de tiro
-        # FEB usa: p1m/p1a (tiros libres), p2m/p2a (tiros de 2), p3m/p3a (triples)
-        three_made = safe_int(player.get("p3m", 0))
-        three_att = safe_int(player.get("p3a", 0))
+        # Detectar formato legacy (datos ya transformados con claves en inglés)
+        is_legacy_format = "playername" in player
+        
+        # Calcular porcentajes de tiro según el formato
+        if is_legacy_format:
+            # Formato legacy: claves en inglés
+            three_made = safe_int(player.get("three_points_made", 0))
+            three_att = safe_int(player.get("three_points_attempted", 0))
+            two_made = safe_int(player.get("two_points_made", 0))
+            two_att = safe_int(player.get("two_points_attempted", 0))
+            field_goals_made = safe_int(player.get("field_goals_made", 0))
+            field_goals_att = safe_int(player.get("field_goals_attempted", 0))
+            ft_made = safe_int(player.get("free_throws_made", 0))
+            ft_att = safe_int(player.get("free_throws_attempted", 0))
+        else:
+            # Formato moderno: claves FEB (p1m/p1a, p2m/p2a, p3m/p3a)
+            three_made = safe_int(player.get("p3m", 0))
+            three_att = safe_int(player.get("p3a", 0))
+            two_made = safe_int(player.get("p2m", 0))
+            two_att = safe_int(player.get("p2a", 0))
+            field_goals_made = two_made + three_made
+            field_goals_att = two_att + three_att
+            ft_made = safe_int(player.get("p1m", 0))
+            ft_att = safe_int(player.get("p1a", 0))
+        
+        # Calcular porcentajes
         three_pct = (three_made / three_att * 100) if three_att > 0 else 0.0
-        
-        two_made = safe_int(player.get("p2m", 0))
-        two_att = safe_int(player.get("p2a", 0))
         two_pct = (two_made / two_att * 100) if two_att > 0 else 0.0
-        
-        field_goals_made = two_made + three_made
-        field_goals_att = two_att + three_att
         field_goal_pct = (field_goals_made / field_goals_att * 100) if field_goals_att > 0 else 0.0
-        
-        ft_made = safe_int(player.get("p1m", 0))
-        ft_att = safe_int(player.get("p1a", 0))
         ft_pct = (ft_made / ft_att * 100) if ft_att > 0 else 0.0
         
         # Calcular edad si tenemos la información
@@ -341,21 +354,59 @@ class FEBDataETL:
                 except:
                     birth_year = None
         
+        # Extraer datos según el formato (legacy vs moderno)
+        if is_legacy_format:
+            # Formato legacy: claves ya en inglés
+            player_name = player.get("playername", "").strip()
+            dorsal = player.get("shirtnumber", "")
+            is_starter = player.get("is_starter", False)
+            points = safe_int(player.get("points", 0))
+            offensive_rebounds = safe_int(player.get("offensive_rebounds", 0))
+            defensive_rebounds = safe_int(player.get("defensive_rebounds", 0))
+            total_rebounds = safe_int(player.get("total_rebounds", 0))
+            assists = safe_int(player.get("assists", 0))
+            turnovers = safe_int(player.get("turnovers", 0))
+            steals = safe_int(player.get("steals", 0))
+            blocks = safe_int(player.get("blocks", 0))
+            blocks_received = safe_int(player.get("blocks_received", 0))
+            personal_fouls = safe_int(player.get("personal_fouls", 0))
+            fouls_received = safe_int(player.get("fouls_received", 0))
+            plus_minus = safe_int(player.get("plus_minus", 0))
+            efficiency = safe_float(player.get("efficiency", 0))
+        else:
+            # Formato moderno: claves de API FEB
+            player_name = player.get("name", "").strip()
+            dorsal = player.get("no", "")
+            is_starter = player.get("inn", "0") == "1"
+            points = safe_int(player.get("pts", 0))
+            offensive_rebounds = safe_int(player.get("ro", 0))
+            defensive_rebounds = safe_int(player.get("rd", 0))
+            total_rebounds = safe_int(player.get("rt", 0))
+            assists = safe_int(player.get("assist", 0))
+            turnovers = safe_int(player.get("to", 0))
+            steals = safe_int(player.get("st", 0))
+            blocks = safe_int(player.get("bs", 0))
+            blocks_received = safe_int(player.get("mt", 0))
+            personal_fouls = safe_int(player.get("pf", 0))
+            fouls_received = safe_int(player.get("rf", 0))
+            plus_minus = safe_int(player.get("pllss", 0))
+            efficiency = safe_float(player.get("val", 0))
+        
         # Preparar datos para calcular métricas avanzadas
         stats_for_advanced = {
-            'pts': safe_int(player.get("pts", 0)),
+            'pts': points,
             'fgm': field_goals_made,
             'fga': field_goals_att,
             'fg3m': three_made,
             'ftm': ft_made,
             'fta': ft_att,
-            'orb': safe_int(player.get("offReb", 0)),
-            'drb': safe_int(player.get("defReb", 0)),
-            'reb': safe_int(player.get("totReb", 0)),
-            'ast': safe_int(player.get("ass", 0)),
-            'tov': safe_int(player.get("steals", 0)),  # Pérdidas
-            'stl': safe_int(player.get("stl", 0)),
-            'blk': safe_int(player.get("blocks", 0)),
+            'orb': offensive_rebounds,
+            'drb': defensive_rebounds,
+            'reb': total_rebounds,
+            'ast': assists,
+            'tov': turnovers,
+            'stl': steals,
+            'blk': blocks,
             'minutes': minutes_played
         }
         
@@ -363,19 +414,19 @@ class FEBDataETL:
         advanced_stats = calculate_all_advanced_stats(stats_for_advanced)
         
         return {
-            "dorsal": player.get("no", ""),
-            "name": player.get("name", "").strip(),
+            "dorsal": dorsal,
+            "name": player_name,
             "birth_year": birth_year,  # Usar la variable validada, no player.get()
             "age_at_game": age_at_game,
             "is_home": is_home,
-            "is_starter": player.get("inn", "0") == "1",
+            "is_starter": is_starter,
             "team_won": team_won,
             
             # Tiempo
             "minutes_played": minutes_played,
             
             # Puntos
-            "points": safe_int(player.get("pts", 0)),
+            "points": points,
             "field_goals_made": field_goals_made,
             "field_goals_attempted": field_goals_att,
             "field_goal_pct": field_goal_pct,
@@ -390,24 +441,24 @@ class FEBDataETL:
             "free_throw_pct": ft_pct,
             
             # Rebotes
-            "offensive_rebounds": safe_int(player.get("ro", 0)),
-            "defensive_rebounds": safe_int(player.get("rd", 0)),
-            "total_rebounds": safe_int(player.get("rt", 0)),
+            "offensive_rebounds": offensive_rebounds,
+            "defensive_rebounds": defensive_rebounds,
+            "total_rebounds": total_rebounds,
             
             # Pases y balones
-            "assists": safe_int(player.get("assist", 0)),
-            "turnovers": safe_int(player.get("to", 0)),  # Pérdidas
-            "steals": safe_int(player.get("st", 0)),  # Robos
+            "assists": assists,
+            "turnovers": turnovers,
+            "steals": steals,
             
             # Defensa
-            "blocks": safe_int(player.get("bs", 0)),
-            "blocks_received": safe_int(player.get("mt", 0)),
-            "personal_fouls": safe_int(player.get("pf", 0)),
-            "fouls_received": safe_int(player.get("rf", 0)),
+            "blocks": blocks,
+            "blocks_received": blocks_received,
+            "personal_fouls": personal_fouls,
+            "fouls_received": fouls_received,
             
             # Métricas legacy
-            "plus_minus": safe_int(player.get("pllss", 0)),
-            "efficiency_rating": safe_float(player.get("val", 0)),
+            "plus_minus": plus_minus,
+            "efficiency_rating": efficiency,
             
             # Métricas avanzadas
             "true_shooting_pct": advanced_stats.get('true_shooting_pct'),
@@ -792,7 +843,7 @@ class FEBDataETL:
             if i % 100 == 0:
                 self.logger.info(f"  Progreso: {i}/{len(profiles)}")
             
-            # Obtener stats del perfil
+            # Obtener stats del perfil con totales para per_36
             cursor.execute("""
                 SELECT 
                     COUNT(*) as games_played,
@@ -808,7 +859,16 @@ class FEBDataETL:
                     AVG((offensive_rating - (SELECT AVG(offensive_rating) FROM player_game_stats WHERE player_id = ?)) * 
                         (offensive_rating - (SELECT AVG(offensive_rating) FROM player_game_stats WHERE player_id = ?))) as var_oer,
                     AVG((points - (SELECT AVG(points) FROM player_game_stats WHERE player_id = ?)) * 
-                        (points - (SELECT AVG(points) FROM player_game_stats WHERE player_id = ?))) as var_points
+                        (points - (SELECT AVG(points) FROM player_game_stats WHERE player_id = ?))) as var_points,
+                    SUM(points) as total_points,
+                    SUM(assists) as total_assists,
+                    SUM(total_rebounds) as total_rebounds,
+                    SUM(steals) as total_steals,
+                    SUM(blocks) as total_blocks,
+                    SUM(turnovers) as total_turnovers,
+                    SUM(field_goals_made) as total_fgm,
+                    SUM(field_goals_attempted) as total_fga,
+                    SUM(three_points_made) as total_3pm
                 FROM player_game_stats
                 WHERE player_id = ?
             """, (profile_id, profile_id, profile_id, profile_id, profile_id))
@@ -816,13 +876,149 @@ class FEBDataETL:
             stats = cursor.fetchone()
             
             if stats and stats[0] > 0:
-                # Calcular performance tier basado en z-scores
+                games = stats[0]
+                total_minutes = stats[1]
+                avg_minutes = stats[2]
+                avg_points = stats[3]
                 avg_z_oer = stats[7] if stats[7] is not None else 0
                 
                 # Calcular desviaciones estándar desde varianza
                 std_oer = (stats[10] ** 0.5) if stats[10] is not None and stats[10] > 0 else 0
                 std_points = (stats[11] ** 0.5) if stats[11] is not None and stats[11] > 0 else 0
                 
+                # ✨ NUEVO: Coeficiente de variación y stability index
+                cv_points = (std_points / avg_points) if avg_points and avg_points > 0 else None
+                stability_index = (std_points / (games ** 0.5)) if games > 0 else None
+                
+                # ✨ NUEVO: Estadísticas per-36
+                pts_per_36 = None
+                ast_per_36 = None
+                reb_per_36 = None
+                stl_per_36 = None
+                blk_per_36 = None
+                tov_per_36 = None
+                fgm_per_36 = None
+                fga_per_36 = None
+                fg3m_per_36 = None
+                
+                if total_minutes and total_minutes > 0:
+                    factor_36 = 36.0 / total_minutes
+                    pts_per_36 = stats[12] * factor_36 if stats[12] else 0
+                    ast_per_36 = stats[13] * factor_36 if stats[13] else 0
+                    reb_per_36 = stats[14] * factor_36 if stats[14] else 0
+                    stl_per_36 = stats[15] * factor_36 if stats[15] else 0
+                    blk_per_36 = stats[16] * factor_36 if stats[16] else 0
+                    tov_per_36 = stats[17] * factor_36 if stats[17] else 0
+                    fgm_per_36 = stats[18] * factor_36 if stats[18] else 0
+                    fga_per_36 = stats[19] * factor_36 if stats[19] else 0
+                    fg3m_per_36 = stats[20] * factor_36 if stats[20] else 0
+                
+                # ✨ NUEVO: Rolling windows (últimos 5 y 10 partidos)
+                cursor.execute("""
+                    WITH recent_games AS (
+                        SELECT pgs.points, pgs.offensive_rating, g.game_date,
+                               ROW_NUMBER() OVER (ORDER BY g.game_date DESC) as rn
+                        FROM player_game_stats pgs
+                        JOIN games g ON pgs.game_id = g.game_id
+                        WHERE pgs.player_id = ?
+                    )
+                    SELECT 
+                        AVG(CASE WHEN rn <= 5 THEN points END) as last_5_pts,
+                        AVG(CASE WHEN rn <= 5 THEN offensive_rating END) as last_5_oer,
+                        AVG(CASE WHEN rn <= 10 THEN points END) as last_10_pts,
+                        AVG(CASE WHEN rn <= 10 THEN offensive_rating END) as last_10_oer
+                    FROM recent_games
+                """, (profile_id,))
+                
+                rolling = cursor.fetchone()
+                last_5_pts = rolling[0] if rolling and rolling[0] else None
+                last_5_oer = rolling[1] if rolling and rolling[1] else None
+                last_10_pts = rolling[2] if rolling and rolling[2] else None
+                last_10_oer = rolling[3] if rolling and rolling[3] else None
+                
+                # Momentum index
+                momentum_index = None
+                if last_5_pts is not None and last_10_pts is not None:
+                    momentum_index = last_5_pts - last_10_pts
+                
+                # Trend points (pendiente de últimos 10 partidos)
+                cursor.execute("""
+                    WITH recent_trend AS (
+                        SELECT pgs.points, g.game_date,
+                               ROW_NUMBER() OVER (ORDER BY g.game_date DESC) as rn
+                        FROM player_game_stats pgs
+                        JOIN games g ON pgs.game_id = g.game_id
+                        WHERE pgs.player_id = ?
+                        LIMIT 10
+                    )
+                    SELECT AVG(points * rn) - AVG(points) * AVG(rn),
+                           AVG(rn * rn) - AVG(rn) * AVG(rn)
+                    FROM recent_trend
+                """, (profile_id,))
+                
+                trend_calc = cursor.fetchone()
+                trend_points = None
+                if trend_calc and trend_calc[1] and trend_calc[1] != 0:
+                    trend_points = trend_calc[0] / trend_calc[1]
+                
+                # ✨ NUEVO: Ratios jugadora/equipo
+                # Obtener totales del equipo en la misma temporada
+                cursor.execute("""
+                    SELECT pp.team_id, pp.season
+                    FROM player_profiles pp
+                    WHERE pp.profile_id = ?
+                """, (profile_id,))
+                
+                team_season = cursor.fetchone()
+                player_pts_share = None
+                player_usage_share = None
+                efficiency_vs_team_avg = None
+                minutes_share = None
+                
+                if team_season:
+                    team_id, season = team_season
+                    
+                    # Totales del equipo
+                    cursor.execute("""
+                        SELECT 
+                            SUM(pgs.points) as team_total_pts,
+                            SUM(pgs.minutes_played) as team_total_minutes,
+                            AVG(pgs.true_shooting_pct) as team_avg_ts,
+                            AVG(pgs.usage_rate) as team_avg_usage
+                        FROM player_game_stats pgs
+                        JOIN player_profiles pp ON pgs.player_id = pp.profile_id
+                        WHERE pp.team_id = ? AND pp.season = ?
+                    """, (team_id, season))
+                    
+                    team_stats = cursor.fetchone()
+                    
+                    if team_stats and team_stats[0]:
+                        team_total_pts = team_stats[0]
+                        team_total_minutes = team_stats[1]
+                        team_avg_ts = team_stats[2]
+                        team_avg_usage = team_stats[3]
+                        
+                        # Calcular ratios
+                        if team_total_pts > 0 and stats[12]:
+                            player_pts_share = stats[12] / team_total_pts
+                        
+                        if team_total_minutes and total_minutes:
+                            minutes_share = total_minutes / team_total_minutes
+                        
+                        if team_avg_ts and stats[6]:
+                            efficiency_vs_team_avg = stats[6] / team_avg_ts
+                        
+                        # Usage share (requiere calcular usage del jugador primero)
+                        cursor.execute("""
+                            SELECT AVG(usage_rate)
+                            FROM player_game_stats
+                            WHERE player_id = ?
+                        """, (profile_id,))
+                        player_usage = cursor.fetchone()
+                        if player_usage and player_usage[0] and team_avg_usage:
+                            player_usage_share = player_usage[0] / team_avg_usage
+                
+                # Performance tier
                 if avg_z_oer > 1.5:
                     tier = 'elite'
                 elif avg_z_oer > 0.5:
@@ -834,19 +1030,31 @@ class FEBDataETL:
                 else:
                     tier = 'below_average'
                 
-                # Insertar o actualizar métricas
+                # Insertar o actualizar métricas con TODAS las nuevas columnas
                 cursor.execute("""
                     INSERT OR REPLACE INTO player_profile_metrics (
                         profile_id, games_played, total_minutes, avg_minutes, avg_points,
                         avg_offensive_rating, avg_player_efficiency_rating,
                         avg_true_shooting_pct, avg_z_offensive_rating,
                         avg_z_player_efficiency_rating, avg_z_minutes,
-                        std_offensive_rating, std_points, performance_tier
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        std_offensive_rating, std_points, performance_tier,
+                        pts_per_36, ast_per_36, reb_per_36, stl_per_36, blk_per_36,
+                        tov_per_36, fgm_per_36, fga_per_36, fg3m_per_36,
+                        cv_points, stability_index,
+                        last_5_games_pts, last_5_games_oer, last_10_games_pts, last_10_games_oer,
+                        trend_points, momentum_index,
+                        player_pts_share, player_usage_share, efficiency_vs_team_avg, minutes_share
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    profile_id, stats[0], stats[1], stats[2], stats[3],
+                    profile_id, games, total_minutes, avg_minutes, avg_points,
                     stats[4], stats[5], stats[6], stats[7],
-                    stats[8], stats[9], std_oer, std_points, tier
+                    stats[8], stats[9], std_oer, std_points, tier,
+                    pts_per_36, ast_per_36, reb_per_36, stl_per_36, blk_per_36,
+                    tov_per_36, fgm_per_36, fga_per_36, fg3m_per_36,
+                    cv_points, stability_index,
+                    last_5_pts, last_5_oer, last_10_pts, last_10_oer,
+                    trend_points, momentum_index,
+                    player_pts_share, player_usage_share, efficiency_vs_team_avg, minutes_share
                 ))
         
         conn.commit()
@@ -977,7 +1185,7 @@ class FEBDataETL:
         
         cursor = conn.cursor()
         
-        # Obtener perfiles con métricas (sin filtrar aún)
+        # Obtener perfiles con métricas, nivel de competición y contexto de equipo
         cursor.execute("""
             SELECT 
                 pp.profile_id,
@@ -990,9 +1198,23 @@ class FEBDataETL:
                 ppm.games_played,
                 ppm.total_minutes,
                 ppm.avg_minutes,
-                ppm.avg_true_shooting_pct
+                ppm.avg_true_shooting_pct,
+                c.competition_name,
+                cl.competition_level,
+                ppm.pts_per_36,
+                ppm.momentum_index,
+                ppm.trend_points,
+                ppm.cv_points,
+                ppm.stability_index,
+                ppm.efficiency_vs_team_avg,
+                ppm.player_pts_share,
+                ppm.last_5_games_pts,
+                ppm.last_10_games_pts
             FROM player_profiles pp
             JOIN player_profile_metrics ppm ON pp.profile_id = ppm.profile_id
+            LEFT JOIN competitions c ON pp.competition_id = c.competition_id
+            LEFT JOIN competition_levels cl ON pp.competition_id = cl.competition_id 
+                AND pp.season = cl.season
         """)
         
         profiles = cursor.fetchall()
@@ -1002,7 +1224,10 @@ class FEBDataETL:
         
         for profile in profiles:
             (profile_id, season, birth_year, avg_z_oer, avg_z_per, std_oer, 
-             std_points, games_played, total_minutes, avg_minutes, avg_ts_pct) = profile
+             std_points, games_played, total_minutes, avg_minutes, avg_ts_pct,
+             competition_name, competition_level, pts_per_36, momentum_index,
+             trend_points, cv_points, stability_index, efficiency_vs_team_avg,
+             player_pts_share, last_5_games_pts, last_10_games_pts) = profile
             
             # FASE 1: Evaluar elegibilidad
             meets_eligibility = True
@@ -1029,12 +1254,18 @@ class FEBDataETL:
             else:
                 ineligible_count += 1
             
-            # Calcular edad estimada
+            # Calcular edad estimada y antigüedad de temporada
             try:
                 season_year = int(season.split('/')[0])
                 age = season_year - birth_year if birth_year else None
+                # Calcular peso temporal: más peso a temporadas recientes
+                # 2025/2026 = 1.0, 2024/2025 = 0.95, 2023/2024 = 0.90, etc.
+                current_year = 2026  # Actualizar cada año
+                years_ago = current_year - season_year
+                temporal_weight = max(0.5, 1.0 - (years_ago * 0.05))
             except:
                 age = None
+                temporal_weight = 1.0
             
             # 1. Age projection score (0.0-1.0)
             if age:
@@ -1051,35 +1282,93 @@ class FEBDataETL:
             else:
                 age_score = 0.5  # Neutral si no tenemos edad
             
-            # 2. Performance score basado en z-scores (0.0-1.0)
+            # 2. Performance score basado en z-scores con ajuste por competición (0.0-1.0)
             if avg_z_oer is not None and avg_z_per is not None:
                 # Normalizar z-scores a 0-1 (asumiendo rango -3 a +3)
-                perf_score = ((avg_z_oer + avg_z_per) / 2 + 3) / 6
-                perf_score = max(0.0, min(1.0, perf_score))
+                base_perf_score = ((avg_z_oer + avg_z_per) / 2 + 3) / 6
+                base_perf_score = max(0.0, min(1.0, base_perf_score))
+                
+                # Ajustar por nivel de competición
+                # Nivel 1 (LF ENDESA): +10% bonus, Nivel 2: neutral, Nivel 3: -5%
+                competition_bonus = 0.0
+                if competition_level == 1:
+                    competition_bonus = 0.10
+                elif competition_level == 3:
+                    competition_bonus = -0.05
+                
+                perf_score = min(1.0, base_perf_score * (1.0 + competition_bonus))
             else:
                 perf_score = 0.5
             
-            # 3. Consistency score (bajo std = más consistente)
-            if std_oer is not None and std_oer > 0:
-                # Normalizar: std bajo = score alto
+            # 3. Consistency score (mejorado con CV y stability index)
+            if cv_points is not None and cv_points >= 0:
+                # Coeficiente de variación: menor es mejor
+                # CV < 0.3 = muy consistente, CV > 0.8 = muy inconsistente
+                consistency_score = max(0.0, min(1.0, 1.0 - (cv_points / 0.8)))
+            elif std_oer is not None and std_oer > 0:
+                # Fallback al método anterior
                 consistency_score = max(0.0, 1.0 - (std_oer / 50.0))
             else:
                 consistency_score = 0.5
             
-            # 4. Advanced metrics score (TS%)
+            # 4. Advanced metrics score (TS% y efficiency vs team)
+            adv_metrics_score = 0.5  # Default
             if avg_ts_pct is not None:
                 # TS% > 55% es muy bueno
-                adv_metrics_score = min(1.0, avg_ts_pct / 65.0)
-            else:
-                adv_metrics_score = 0.5
+                base_ts_score = min(1.0, avg_ts_pct / 65.0)
+                
+                # Ajustar por efficiency vs equipo si disponible
+                if efficiency_vs_team_avg is not None:
+                    # > 1.0 = mejor que el equipo, < 1.0 = peor
+                    team_adj = min(1.2, max(0.8, efficiency_vs_team_avg))
+                    adv_metrics_score = base_ts_score * team_adj
+                else:
+                    adv_metrics_score = base_ts_score
             
-            # Calcular potential score BASE (sin ajuste de confianza)
+            # ✨ 5. Momentum/Trend score (NUEVO - detecta breakouts)
+            momentum_score = 0.5  # Default neutral
+            if momentum_index is not None:
+                # momentum_index = avg(last5) - avg(last10)
+                # Positivo = mejorando, negativo = empeorando
+                # Normalizar entre -5 y +5 puntos de diferencia
+                normalized_momentum = (momentum_index + 5) / 10
+                momentum_score = max(0.0, min(1.0, normalized_momentum))
+            elif trend_points is not None:
+                # Trend como fallback
+                # Pendiente positiva = mejorando
+                normalized_trend = (trend_points + 2) / 4
+                momentum_score = max(0.0, min(1.0, normalized_trend))
+            
+            # ✨ 6. Production per-36 score (NUEVO - normalizado por tiempo)
+            production_score = 0.5  # Default
+            if pts_per_36 is not None:
+                # pts_per_36 > 15 = excelente, < 5 = muy bajo
+                production_score = min(1.0, pts_per_36 / 20.0)
+                
+                # Ajustar por share del equipo si disponible
+                if player_pts_share is not None:
+                    # > 0.15 = líder ofensiva, < 0.05 = rol secundario
+                    share_bonus = min(0.2, player_pts_share * 1.0)
+                    production_score = min(1.0, production_score + share_bonus)
+            
+            # ✨ NUEVA PONDERACIÓN con features mejoradas:
+            # - 20% Edad (proyección temporal)
+            # - 30% Performance (z-scores ajustados por competición)
+            # - 15% Production per-36 (producción normalizada)
+            # - 15% Consistency (CV points, stability)
+            # - 10% Advanced metrics (TS%, efficiency vs team)
+            # - 10% Momentum (breakout detection)
             base_potential_score = (
-                0.30 * age_score +
-                0.40 * perf_score +
-                0.20 * consistency_score +
-                0.10 * adv_metrics_score
+                0.20 * age_score +
+                0.30 * perf_score +
+                0.15 * production_score +
+                0.15 * consistency_score +
+                0.10 * adv_metrics_score +
+                0.10 * momentum_score
             )
+            
+            # Aplicar peso temporal al score final para priorizar datos recientes
+            base_potential_score = base_potential_score * (0.85 + 0.15 * temporal_weight)
             
             # FASE 2: Calcular multiplicador de confianza
             confidence_score = self.calculate_confidence_multiplier(
@@ -1385,45 +1674,78 @@ class FEBDataETL:
                     'games': data['games'],
                     'minutes': data['minutes'],
                     'score': avg_score,
-                    'profiles': data['profiles']  # Info: cuántos equipos jugó
+                    'profiles': data['profiles'],  # Info: cuántos equipos jugó
+                    'max_level': data['max_level']  # Nivel máximo de competición en esta temporada
                 })
             
-            # 1. Career Average Performance (promedio histórico)
-            valid_perf_scores = [s['score'] for s in eligible_seasons]
-            career_avg_performance = np.mean(valid_perf_scores) if valid_perf_scores else 0.5
+            # 1. Career Average Performance (promedio histórico ponderado por minutos)
+            total_weighted_score = sum(s['score'] * s['minutes'] for s in eligible_seasons)
+            total_minutes = sum(s['minutes'] for s in eligible_seasons)
+            career_avg_performance = total_weighted_score / total_minutes if total_minutes > 0 else 0.5
             
-            # 2. Recent Performance (últimas 2-3 temporadas elegibles)
-            recent_seasons = eligible_seasons[:min(3, len(eligible_seasons))]
-            recent_perf_scores = [s['score'] for s in recent_seasons]
-            recent_performance = np.mean(recent_perf_scores) if recent_perf_scores else career_avg_performance
+            # 2. Recent Performance (últimas 2 temporadas, ponderado por minutos)
+            # IMPORTANTE: Calcular de forma independiente para detectar mejoras
+            recent_limit = min(2, len(eligible_seasons))
+            recent_seasons = eligible_seasons[:recent_limit]
+            recent_weighted_score = sum(s['score'] * s['minutes'] for s in recent_seasons)
+            recent_minutes = sum(s['minutes'] for s in recent_seasons)
+            recent_performance = recent_weighted_score / recent_minutes if recent_minutes > 0 else career_avg_performance
             
-            # 3. Career Trajectory (tendencia de mejora)
+            # 3. Career Trajectory (tendencia de mejora) - OPTIMIZADO PARA SALTOS RÁPIDOS
+            valid_perf_scores = [s['score'] for s in eligible_seasons[::-1]]  # Orden cronológico
+            
             if len(valid_perf_scores) >= 3:
-                # Regresión lineal simple sobre scores a lo largo del tiempo
+                # Para detectar mejoras explosivas, dar más peso a las últimas temporadas
+                # Comparar últimas 2 vs todas las anteriores
+                recent_avg = np.mean(valid_perf_scores[-2:])
+                older_avg = np.mean(valid_perf_scores[:-2])
+                improvement = recent_avg - older_avg
+                
+                # Regresión lineal tradicional
                 x = np.arange(len(valid_perf_scores))
                 y = np.array(valid_perf_scores)
                 slope = np.polyfit(x, y, 1)[0] if len(x) > 1 else 0
+                trajectory_from_slope = (slope / 0.15) * 0.5 + 0.5
+                trajectory_from_slope = max(0.0, min(1.0, trajectory_from_slope))
                 
-                # Normalizar pendiente a 0-1
-                # slope > 0 = mejorando, slope < 0 = empeorando
-                # Mapear pendiente típica (-0.1 a +0.1) a rango 0-1
-                trajectory_raw = slope * 5 + 0.5  # Amplificar y centrar
-                career_trajectory = max(0.0, min(1.0, trajectory_raw))
+                # Trajectory desde comparación directa (más sensible a saltos)
+                if improvement > 0.10:  # Salto explosivo (>10%)
+                    trajectory_from_improvement = 0.95
+                elif improvement > 0.05:  # Salto significativo (>5%)
+                    trajectory_from_improvement = 0.80
+                elif improvement > 0.02:  # Mejora moderada
+                    trajectory_from_improvement = 0.65
+                elif improvement > -0.02:  # Estable
+                    trajectory_from_improvement = 0.50
+                else:  # Empeorando
+                    trajectory_from_improvement = 0.30
+                
+                # Combinar ambos (70% comparación directa, 30% regresión)
+                career_trajectory = 0.70 * trajectory_from_improvement + 0.30 * trajectory_from_slope
+                    
             elif len(valid_perf_scores) == 2:
-                # Solo 2 temporadas: comparar directamente
-                if valid_perf_scores[0] > valid_perf_scores[1]:
-                    career_trajectory = 0.7  # Mejorando
-                elif valid_perf_scores[0] < valid_perf_scores[1]:
-                    career_trajectory = 0.3  # Empeorando
-                else:
-                    career_trajectory = 0.5  # Estable
+                # Solo 2 temporadas: comparar directamente con más granularidad
+                improvement = valid_perf_scores[-1] - valid_perf_scores[0]
+                if improvement > 0.10:  # Salto explosivo (>10%)
+                    career_trajectory = 0.90
+                elif improvement > 0.05:  # Mejora significativa (>5%)
+                    career_trajectory = 0.75
+                elif improvement > 0.02:  # Mejora moderada
+                    career_trajectory = 0.65
+                elif improvement > -0.02:  # Estable
+                    career_trajectory = 0.50
+                elif improvement > -0.05:  # Leve descenso
+                    career_trajectory = 0.35
+                else:  # Empeora significativamente
+                    career_trajectory = 0.20
             else:
-                career_trajectory = 0.5  # No hay suficiente histórico
+                career_trajectory = 0.50  # No hay suficiente histórico
             
-            # AJUSTE: Si performance reciente es baja (<0.5), penalizar trayectoria
-            # No tiene sentido dar alta trayectoria si el rendimiento actual es malo
-            if recent_performance < 0.5:
-                career_trajectory = min(career_trajectory, 0.4)  # Cap máximo 0.4
+            # AJUSTE: Si performance reciente es baja (<0.40), penalizar trayectoria
+            # No tiene sentido dar alta trayectoria si el rendimiento actual es realmente malo
+            # (Relajado de 0.45 a 0.40 para no penalizar jugadores en desarrollo)
+            if recent_performance < 0.40:
+                career_trajectory = min(career_trajectory, 0.40)  # Cap máximo 0.4
             
             # 4. Career Consistency (consistencia entre temporadas)
             if len(valid_perf_scores) >= 2:
@@ -1448,35 +1770,86 @@ class FEBDataETL:
                 age_score = 0.5
             
             # 6. Career Confidence (basado en cantidad de datos)
-            # Más temporadas + más partidos = mayor confianza
-            if seasons_count >= 4 and total_games >= 60:
+            # AJUSTADO: No penalizar tanto a jugadores jóvenes con pocas temporadas
+            # Un jugador con 2 temporadas sólidas puede tener alto potencial
+            if seasons_count >= 4 and total_games >= 50:
                 career_confidence = 1.0
-            elif seasons_count >= 3 and total_games >= 40:
-                career_confidence = 0.9
+            elif seasons_count >= 3 and total_games >= 30:
+                career_confidence = 0.95
             elif seasons_count >= 2 and total_games >= 20:
-                career_confidence = 0.8
-            elif seasons_count >= 1 and total_games >= 10:
-                career_confidence = 0.6
+                career_confidence = 0.90  # Era 0.8, ahora menos penalización
+            elif seasons_count >= 2 and total_games >= 10:
+                career_confidence = 0.85  # Nuevo: 2 temporadas con pocos partidos
+            elif seasons_count >= 1 and total_games >= 15:
+                career_confidence = 0.75  # Era 0.6
             else:
-                career_confidence = 0.4
+                career_confidence = 0.60  # Era 0.4
+            
+            # Detectar SALTOS DE NIVEL de competición (indicador de potencial explosivo)
+            level_jump_bonus = 0.0
+            if len(eligible_seasons) >= 2:
+                # Comparar nivel máximo de últimas 2 temporadas vs temporadas anteriores
+                recent_max_level = max([s['max_level'] for s in eligible_seasons[:2]])
+                if len(eligible_seasons) > 2:
+                    past_max_level = max([s['max_level'] for s in eligible_seasons[2:]])
+                    level_jump = recent_max_level - past_max_level
+                    if level_jump >= 2:  # Salto de 2+ niveles (ej: nivel 4 -> nivel 2)
+                        level_jump_bonus = 0.15  # Bonus significativo
+                    elif level_jump >= 1:
+                        level_jump_bonus = 0.08
             
             # CALCULAR UNIFIED POTENTIAL SCORE
-            # Ponderación AJUSTADA:
-            # - 40% Performance reciente (MUY importante - refleja estado actual)
-            # - 20% Trayectoria de mejora (tendencia)
-            # - 10% Performance histórica (reducido - pasado menos relevante)
-            # - 10% Edad/proyección (reducido - ser joven no garantiza potencial)
-            # - 15% Consistencia
-            # - 5% Confianza de datos
+            # Ponderación OPTIMIZADA PARA CRECIMIENTO EXPLOSIVO:
+            # - 50% Performance reciente (lo que hace AHORA es más importante)
+            # - 25% Trayectoria de mejora (detectar momentum)
+            # - 5% Performance histórica (pasado lejano poco relevante)
+            # - 10% Edad/proyección (margen de crecimiento)
+            # - 5% Consistencia (jugadores en desarrollo pueden ser inconsistentes)
+            # - 5% Confianza de datos (no penalizar tanto a jóvenes con pocas temporadas)
             
-            unified_score = (
-                0.40 * recent_performance +
-                0.20 * career_trajectory +
-                0.10 * career_avg_performance +
+            base_unified_score = (
+                0.50 * recent_performance +
+                0.25 * career_trajectory +
+                0.05 * career_avg_performance +
                 0.10 * age_score +
-                0.15 * career_consistency +
+                0.05 * career_consistency +
                 0.05 * career_confidence
             )
+            
+            # Aplicar bonus por salto de nivel
+            unified_score = min(1.0, base_unified_score + level_jump_bonus)
+            
+            # PENALIZACIÓN POR INACTIVIDAD
+            # Calcular cuántas temporadas han pasado desde la última temporada jugada
+            current_year = 2026  # Actualizar cada año
+            try:
+                # Usar el año de FIN de la temporada (2025/2026 -> jugó hasta 2026)
+                last_season_end_year = int(last_season.split('/')[1])
+                seasons_inactive = current_year - last_season_end_year
+                
+                # Penalización progresiva por inactividad
+                if seasons_inactive >= 1:
+                    # 1 temporada sin jugar: -15% (puede ser lesión/académico)
+                    # 2 temporadas sin jugar: -35% (preocupante)
+                    # 3+ temporadas sin jugar: -60% (probablemente retirada o fuera de FEB)
+                    if seasons_inactive == 1:
+                        inactivity_penalty = 0.15
+                    elif seasons_inactive == 2:
+                        inactivity_penalty = 0.35
+                    else:  # 3 o más temporadas
+                        inactivity_penalty = 0.60
+                    
+                    unified_score = unified_score * (1.0 - inactivity_penalty)
+                    
+                    # Log para debugging
+                    if unified_score >= 0.50:  # Solo loggear jugadores con potencial relevante
+                        self.logger.info(
+                            f"⚠️  {name_normalized}: {seasons_inactive} temporadas inactiva "
+                            f"(última: {last_season}). Penalización: -{inactivity_penalty*100:.0f}%. "
+                            f"Score ajustado: {unified_score:.3f}"
+                        )
+            except:
+                pass  # Si no se puede parsear la temporada, no aplicar penalización
             
             # Determinar tier
             if unified_score >= 0.70:
@@ -1491,22 +1864,29 @@ class FEBDataETL:
                 tier = 'low'
             
             # Flags especiales
+            # Rising Star: Jugador joven mejorando
             is_rising_star = (
-                career_trajectory >= 0.7 and
+                seasons_count >= 2 and
                 current_age and current_age <= 24 and
-                recent_performance >= 0.5
+                recent_performance > career_avg_performance + 0.02 and  # Mejora mínima 2%
+                career_trajectory >= 0.55 and
+                recent_performance >= 0.45
             )
             
+            # Established Talent: Jugador consolidado
             is_established_talent = (
                 seasons_count >= 3 and
-                career_avg_performance >= 0.55 and
-                career_consistency >= 0.7
+                career_avg_performance >= 0.50 and
+                career_consistency >= 0.7 and
+                recent_performance >= 0.45
             )
             
+            # Peak Performer: Jugador en su mejor momento
             is_peak_performer = (
-                recent_performance >= 0.6 and
-                recent_performance > career_avg_performance and
-                current_age and 24 <= current_age <= 28
+                recent_performance >= 0.55 and
+                (recent_performance > career_avg_performance * 1.05 or  # 5% mejor que carrera
+                 recent_performance >= 0.65) and  # O directamente muy alto
+                current_age and 22 <= current_age <= 29
             )
             
             # Encontrar mejor temporada
@@ -1865,6 +2245,9 @@ class FEBDataETL:
                 
                 # Calcular scores de potencial
                 self.calculate_profile_potential_scores(conn)
+                
+                # Calcular potencial de carrera consolidado (por jugador único)
+                self.calculate_career_potential_scores(conn)
                 
                 # Generar candidatos de matching
                 if generate_candidates:

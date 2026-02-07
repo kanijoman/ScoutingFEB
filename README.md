@@ -7,10 +7,22 @@ Sistema de scouting de baloncesto basado en IA para predecir el rendimiento futu
 - **Scraping Automático**: Recopilación de datos de partidos desde la web de la FEB
 - **Sistema Incremental**: Solo procesa encuentros nuevos (ahorro 97-98%)
 - **Gestión de Identidades**: Sistema inteligente para resolver duplicados de jugadores
+- **Consolidación de Carreras**: Rastrea jugadoras a través de 25+ temporadas
 - **ETL Completo**: Pipeline de transformación MongoDB → SQLite
-- **Machine Learning**: Modelos XGBoost para predicción de rendimiento
+- **Machine Learning Avanzado**: Modelos XGBoost prediciendo promedios de temporada (R²=0.88)
+- **Feature Engineering**: Per-36, rolling windows, team ratios, consistency metrics
 - **Interpretabilidad**: Explicaciones SHAP de las predicciones
 - **Base de Datos Dual**: MongoDB (raw) + SQLite (procesado)
+
+## 🚀 Resultados del Sistema ML
+
+**Últimas mejoras (Feb 2026):**
+- **R² = 0.880** para predicción de puntos (mejora del 89% vs baseline)
+- **R² = 0.886** para predicción de eficiencia (mejora del 124% vs baseline)
+- **152,577 registros** de entrenamiento con 2,107 jugadoras únicas
+- **6,725 identidades consolidadas** rastreando carreras completas
+
+Ver detalles: [ML_IMPROVEMENTS_RESULTS.md](ML_IMPROVEMENTS_RESULTS.md)
 
 ## 🆕 Sistema de Gestión de Identidades
 
@@ -23,9 +35,11 @@ El sistema ahora incluye un **sofisticado sistema de perfiles de jugadores** que
 
 ### Solución Implementada
 - ✅ **Perfiles únicos**: Cada aparición (nombre+equipo+temporada) genera un perfil
+- ✅ **Consolidación Automática**: 16,528 perfiles → 6,725 identidades únicas (score ≥0.95)
 - ✅ **Candidate Matching**: Algoritmo de similitud automático con scoring (0.0-1.0)
 - ✅ **Validación Humana**: El staff confirma identidades, el sistema aprende
 - ✅ **Scoring de Potencial**: Identificación automática de jugadores prometedores
+- ✅ **Tracking Multi-Temporada**: Rastrea carreras de hasta 19 temporadas
 
 **Ver documentación completa:** [PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)
 

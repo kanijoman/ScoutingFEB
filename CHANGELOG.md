@@ -2,6 +2,70 @@
 
 Todos los cambios notables en este proyecto serán documentados en este archivo.
 
+## [0.6.0] - 2026-02-07
+
+### 🚀 Mejoras Revolucionarias en Sistema ML
+
+**Cambio de Paradigma: Predicción de Promedios de Temporada**
+- **R² mejorado de 0.46 → 0.88** (+89% en puntos, +124% en eficiencia)
+- **RMSE reducido 70%:** 4.42 → 1.33 puntos, 6.30 → 1.61 eficiencia
+- Target cambiado de "próximo partido" → "promedio próxima temporada"
+- 152,577 registros de entrenamiento con 2,107 jugadoras únicas
+
+**Sistema de Consolidación de Identidades**
+- 16,528 perfiles → 6,725 identidades únicas consolidadas
+- 3,283 jugadoras rastreadas en múltiples temporadas
+- Matching automático por nombre normalizado (score ≥0.95)
+- Ejemplos: Regina Gómez Iglesias (19 temporadas), Rita Montenegro (18 temporadas)
+
+**Features Avanzadas Implementadas**
+- Per-36 normalization: Elimina bias de minutos jugados
+- Rolling windows: last_5_games, last_10_games con momentum detection
+- Team context ratios: player_pts_share, efficiency_vs_team_avg, usage_share
+- Consistency metrics: cv_points, stability_index ajustado por sample size
+
+**Archivos Nuevos**
+- `src/ml/consolidate_identities.py`: Script de consolidación automática
+- `ML_IMPROVEMENTS_RESULTS.md`: Documentación completa de resultados
+
+**Archivos Modificados**
+- `src/ml/xgboost_model.py`: 
+  - JOIN con player_profiles para obtener consolidated_player_id
+  - Función _compute_targets() reconstruida para temporada siguiente
+  - Filtro de 200+ minutos en temporada target
+  - Fix warning pandas fillna con infer_objects()
+- `src/ml/etl_processor.py`: 
+  - compute_profile_metrics() con per-36, rolling windows, team ratios
+  - calculate_profile_potential_scores() con nuevas ponderaciones
+  - calculate_career_potential_scores() con penalización inactividad corregida
+- `src/database/sqlite_schema.py`: 
+  - 19 nuevas columnas en player_profile_metrics
+- `src/run_ml_pipeline.py`:
+  - Integración automática de consolidación de identidades
+  - Nuevo flag --no-consolidate para deshabilitar
+
+**Pipeline de Ejecución**
+```bash
+# 1. ETL completo con consolidación automática
+python src/run_ml_pipeline.py
+
+# 2. Solo consolidación (standalone)
+python src/ml/consolidate_identities.py --min-score 0.95
+
+# 3. Solo entrenamiento (con datos existentes)
+python src/run_ml_pipeline.py --skip-etl
+
+# 4. Ver resultados de modelos
+python src/ml/xgboost_model.py
+```
+
+**Documentación Actualizada**
+- README.md: Sección de resultados ML y consolidación
+- ML_IMPROVEMENTS_RESULTS.md: Análisis técnico completo
+- PLAYER_IDENTITY_SYSTEM.md: Sistema de identidades explicado
+
+---
+
 ## [0.5.2] - 2026-01-14
 
 ### 🔍 Mejoras en Detección de Partidos Futuros

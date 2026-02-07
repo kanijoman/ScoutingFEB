@@ -204,11 +204,11 @@ class PlayerIdentityManager:
     
     def list_profiles_by_potential(self, min_score: float = 0.60, limit: int = 50):
         """
-        Listar perfiles por potencial.
+        Listar jugadoras por potencial consolidado de carrera.
         
         Args:
             min_score: Score mínimo de potencial
-            limit: Límite de perfiles a mostrar
+            limit: Límite de jugadoras a mostrar
         """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -216,62 +216,85 @@ class PlayerIdentityManager:
         
         cursor.execute("""
             SELECT 
-                pp.profile_id,
-                pp.name_raw,
-                pp.season,
-                pp.birth_year,
+                pcp.career_potential_id,
+                pcp.player_name,
+                pcp.unified_potential_score,
+                pcp.potential_tier,
+                pcp.career_avg_performance,
+                pcp.recent_performance,
+                pcp.seasons_played,
+                pcp.last_season,
+                pcp.birth_year,
+                pcp.current_age,
+                pcp.is_rising_star,
+                pcp.is_peak_performer,
+                pcp.is_established_talent,
+                pcp.career_trajectory,
+                pp_latest.team_id,
                 t.team_name,
                 c.competition_name,
-                ppm.avg_points,
-                ppm.avg_offensive_rating,
-                ppm.performance_tier,
-                ppp.potential_score,
-                ppp.potential_tier,
-                ppp.is_young_talent,
-                ppp.is_consistent_performer
-            FROM player_profiles pp
-            JOIN player_profile_potential ppp ON pp.profile_id = ppp.profile_id
-            LEFT JOIN player_profile_metrics ppm ON pp.profile_id = ppm.profile_id
-            LEFT JOIN teams t ON pp.team_id = t.team_id
-            LEFT JOIN competitions c ON pp.competition_id = c.competition_id
-            WHERE ppp.potential_score >= ?
-            ORDER BY ppp.potential_score DESC
+                ppm_latest.avg_points,
+                ppm_latest.avg_offensive_rating
+            FROM player_career_potential pcp
+            LEFT JOIN (
+                SELECT name_raw, season, team_id, competition_id, profile_id,
+                       ROW_NUMBER() OVER (PARTITION BY name_raw, season ORDER BY profile_id DESC) as rn
+                FROM player_profiles
+            ) pp_latest ON 
+                pcp.player_name = pp_latest.name_raw 
+                AND pcp.last_season = pp_latest.season
+                AND pp_latest.rn = 1
+            LEFT JOIN teams t ON pp_latest.team_id = t.team_id
+            LEFT JOIN competitions c ON pp_latest.competition_id = c.competition_id
+            LEFT JOIN player_profile_metrics ppm_latest ON pp_latest.profile_id = ppm_latest.profile_id
+            WHERE pcp.unified_potential_score >= ?
+            GROUP BY pcp.career_potential_id
+            ORDER BY pcp.unified_potential_score DESC
             LIMIT ?
         """, (min_score, limit))
         
         profiles = cursor.fetchall()
         
         print("=" * 120)
-        print(f"PERFILES CON ALTO POTENCIAL (Score >= {min_score})")
+        print(f"JUGADORAS CON ALTO POTENCIAL (Score >= {min_score})")
         print("=" * 120)
-        print(f"Total encontrados: {len(profiles)}\n")
+        print(f"Total encontradas: {len(profiles)}\n")
         
         if not profiles:
-            print("No se encontraron perfiles con el threshold especificado.\n")
+            print("No se encontraron jugadoras con el threshold especificado.\n")
             conn.close()
             return
         
         for i, profile in enumerate(profiles, 1):
             flags = []
-            if profile['is_young_talent']:
+            if profile['is_rising_star']:
                 flags.append("🌟 JOVEN")
-            if profile['is_consistent_performer']:
-                flags.append("🎯 CONSISTENTE")
+            if profile['is_peak_performer']:
+                flags.append("🔥 PICO")
+            if profile['is_established_talent']:
+                flags.append("👑 VETERANA")
+            
+            # Indicadores de tendencia
+            if profile['career_trajectory'] and profile['career_trajectory'] > 0.15:
+                flags.append("📈 ASCENSO")
+            elif profile['career_trajectory'] and profile['career_trajectory'] < -0.10:
+                flags.append("📉 DECLIVE")
             
             flags_str = " ".join(flags) if flags else ""
             
-            age = f"{datetime.now().year - profile['birth_year']}" if profile['birth_year'] else "N/A"
+            age = profile['current_age'] if profile['current_age'] else "N/A"
             
             # Manejar valores None en estadísticas
             avg_pts = profile['avg_points'] if profile['avg_points'] is not None else 0.0
             avg_oer = profile['avg_offensive_rating'] if profile['avg_offensive_rating'] is not None else 0.0
-            perf_tier = profile['performance_tier'] or "N/A"
             pot_tier = profile['potential_tier'] or "N/A"
+            seasons = profile['seasons_played'] or 0
+            team = profile['team_name'] or "N/A"
             
-            print(f"{i}. [{profile['potential_score']:.3f}] {profile['name_raw']} {flags_str}")
-            print(f"   ID: {profile['profile_id']} | {profile['team_name']} | {profile['season']} | Edad: {age}")
-            print(f"   Stats: {avg_pts:.1f} pts, OER={avg_oer:.1f} | "
-                  f"Tier: {perf_tier} | Potencial: {pot_tier}")
+            print(f"{i}. [{profile['unified_potential_score']:.3f}] {profile['player_name']} {flags_str}")
+            print(f"   ID: {profile['career_potential_id']} | {seasons} temporadas")
+            print(f"   Última: {team} | {profile['last_season']} | Edad: {age}")
+            print(f"   Stats Última Temp: {avg_pts:.1f} pts, OER={avg_oer:.1f} | Potencial: {pot_tier}")
             print()
         
         conn.close()

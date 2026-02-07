@@ -92,6 +92,7 @@ class PlayerPerformanceModel:
         SELECT 
             pgs.player_id,
             pgs.game_id,
+            pp.consolidated_player_id,
 
             -- Features del partido actual
             pgs.age_at_game,
@@ -143,6 +144,32 @@ class PlayerPerformanceModel:
             pas.percentile_offensive_rating,
             pas.percentile_player_efficiency_rating,
             
+            -- ✨ NUEVAS FEATURES: Normalización per-36 minutos
+            ppm.pts_per_36,
+            ppm.ast_per_36,
+            ppm.reb_per_36,
+            ppm.stl_per_36,
+            ppm.blk_per_36,
+            ppm.tov_per_36,
+            
+            -- ✨ NUEVAS FEATURES: Rolling windows y momentum
+            ppm.last_5_games_pts,
+            ppm.last_5_games_oer,
+            ppm.last_10_games_pts,
+            ppm.last_10_games_oer,
+            ppm.momentum_index,
+            ppm.trend_points as ppm_trend_points,
+            
+            -- ✨ NUEVAS FEATURES: Consistencia mejorada
+            ppm.cv_points,
+            ppm.stability_index,
+            
+            -- ✨ NUEVAS FEATURES: Ratios jugadora/equipo
+            ppm.player_pts_share,
+            ppm.player_usage_share,
+            ppm.efficiency_vs_team_avg,
+            ppm.minutes_share,
+            
             -- Features del partido
             g.score_diff,
             c.gender,
@@ -153,18 +180,19 @@ class PlayerPerformanceModel:
             tgc.days_since_last_game,
             tgc.team_last5_wins,
             
-            -- Target (próximo partido)
-            -- Aquí necesitaríamos calcular el target del SIGUIENTE partido
-            NULL as next_game_points,
-            NULL as next_game_efficiency
+            -- Identificar la temporada actual
+            g.season
             
         FROM player_game_stats pgs
         JOIN games g ON pgs.game_id = g.game_id
         JOIN competitions c ON g.competition_id = c.competition_id
+        JOIN player_profiles pp ON pgs.player_id = pp.profile_id
         LEFT JOIN player_aggregated_stats pas 
             ON pgs.player_id = pas.player_id 
             AND g.season = pas.season
             AND g.competition_id = pas.competition_id
+        LEFT JOIN player_profile_metrics ppm 
+            ON pgs.player_id = ppm.profile_id
         LEFT JOIN team_game_context tgc 
             ON pgs.game_id = tgc.game_id 
             AND pgs.team_id = tgc.team_id
@@ -193,9 +221,12 @@ class PlayerPerformanceModel:
         self.logger.info(f"Datos con target: {len(df)} registros")
         
         # Separar features y target
-        target_cols = ['next_game_points', 'next_game_efficiency']
+        target_cols = ['next_season_avg_points', 'next_season_avg_efficiency']
         feature_cols = [col for col in df.columns 
-                       if col not in target_cols + ['player_id', 'game_id']]
+                       if col not in target_cols + ['player_id', 'game_id', 'season', 
+                                                     'next_season', 'season_avg_points', 
+                                                     'season_avg_efficiency', 'season_total_minutes',
+                                                     'next_season_total_minutes', 'consolidated_player_id']]
         
         X = df[feature_cols].copy()
         y = df[target]
@@ -209,7 +240,7 @@ class PlayerPerformanceModel:
                 X[col] = le.fit_transform(X[col])
         
         # Rellenar NaN con 0 (para features opcionales)
-        X = X.fillna(0)
+        X = X.fillna(0).infer_objects(copy=False)
         
         self.feature_names = list(X.columns)
         
@@ -217,7 +248,7 @@ class PlayerPerformanceModel:
     
     def _compute_targets(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Calcular targets (valores del próximo partido) para cada jugador.
+        Calcular targets (promedios de la próxima temporada) para cada jugador.
         
         Args:
             df: DataFrame con datos ordenados por jugador y fecha
@@ -225,11 +256,62 @@ class PlayerPerformanceModel:
         Returns:
             DataFrame con columnas de target añadidas
         """
-        self.logger.info("Calculando targets (próximo partido)...")
+        self.logger.info("Calculando targets (promedios próxima temporada)...")
         
-        # Agrupar por jugador y calcular valores del próximo partido
-        df['next_game_points'] = df.groupby('player_id')['points'].shift(-1)
-        df['next_game_efficiency'] = df.groupby('player_id')['efficiency_rating'].shift(-1)
+        # Filtrar solo perfiles consolidados
+        df = df[df['consolidated_player_id'].notna()].copy()
+        self.logger.info(f"Registros con identidad consolidada: {len(df)}")
+        self.logger.info(f"Identidades únicas: {df['consolidated_player_id'].nunique()}")
+        
+        # Agrupar por identidad consolidada y temporada para calcular promedios
+        season_stats = df.groupby(['consolidated_player_id', 'season']).agg({
+            'points': 'mean',
+            'efficiency_rating': 'mean',
+            'minutes_played': ['sum', 'count']
+        }).reset_index()
+        
+        season_stats.columns = ['consolidated_player_id', 'season', 'season_avg_points', 
+                                'season_avg_efficiency', 'season_total_minutes', 'games_in_season']
+        
+        # Calcular temporada siguiente
+        def next_season(season_str):
+            try:
+                years = str(season_str).split('/')
+                return f"{int(years[0])+1}/{int(years[1])+1}"
+            except:
+                return None
+        
+        season_stats['next_season'] = season_stats['season'].apply(next_season)
+        
+        # Self-join: cada temporada se conecta con sus stats de la siguiente
+        next_stats = season_stats[['consolidated_player_id', 'season', 'season_avg_points', 
+                                   'season_avg_efficiency', 'season_total_minutes']].copy()
+        next_stats.columns = ['consolidated_player_id', 'prev_season', 'next_season_avg_points', 
+                             'next_season_avg_efficiency', 'next_season_total_minutes']
+        
+        # Merge: la temporada N se une con la N+1
+        season_stats = season_stats.merge(
+            next_stats,
+            left_on=['consolidated_player_id', 'next_season'],
+            right_on=['consolidated_player_id', 'prev_season'],
+            how='inner'
+        )
+        
+        print(f"DEBUG: Después del merge: {len(season_stats)} registros")
+        print(f"DEBUG: Columnas después del merge: {season_stats.columns.tolist()}")
+        
+        # Filtrar solo jugadores que tuvieron actividad suficiente en la siguiente temporada (>=200 min)
+        season_stats = season_stats[season_stats['next_season_total_minutes'] >= 200].copy()
+        
+        self.logger.info(f"Temporadas con siguiente temporada disponible: {len(season_stats)}")
+        self.logger.info(f"Jugadores únicos: {season_stats['consolidated_player_id'].nunique()}")
+        
+        # Merge con el dataframe original (cada partido se etiqueta con el promedio de la SIGUIENTE temporada)
+        df = df.merge(
+            season_stats[['consolidated_player_id', 'season', 'next_season_avg_points', 'next_season_avg_efficiency']],
+            on=['consolidated_player_id', 'season'],
+            how='inner'
+        )
         
         return df
     
@@ -335,8 +417,8 @@ class PlayerPerformanceModel:
         self.logger.info("="*70)
         
         targets = {
-            'points_predictor': 'next_game_points',
-            'efficiency_predictor': 'next_game_efficiency'
+            'points_predictor': 'next_season_avg_points',
+            'efficiency_predictor': 'next_season_avg_efficiency'
         }
         
         results = {}
@@ -500,7 +582,7 @@ class PlayerPerformanceModel:
                 # Usar un encoding simple numérico
                 X[col] = pd.Categorical(X[col]).codes
         
-        X = X.fillna(0)
+        X = X.fillna(0).infer_objects(copy=False)
         
         # Predicción
         model = self.models[model_name]
@@ -603,6 +685,21 @@ def main():
     # Crear y entrenar modelos
     model = PlayerPerformanceModel()
     results = model.train_all_models(min_games=5)
+    
+    # Mostrar resumen de resultados
+    print("\n" + "="*70)
+    print("RESULTADOS DEL ENTRENAMIENTO")
+    print("="*70 + "\n")
+    
+    for model_name, result in results.items():
+        metrics = result['metrics']
+        print(f"{model_name.upper().replace('_', ' ')}")
+        print(f"  Train RMSE: {metrics['train']['rmse']:.2f}")
+        print(f"  Train R²:   {metrics['train']['r2']:.3f}")
+        print(f"  Test RMSE:  {metrics['test']['rmse']:.2f}")
+        print(f"  Test R²:    {metrics['test']['r2']:.3f}")
+        print(f"  Test MAE:   {metrics['test']['mae']:.2f}")
+        print()
     
     # Ver importancia de características
     for model_name in results.keys():
