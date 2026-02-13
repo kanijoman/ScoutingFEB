@@ -18,24 +18,14 @@ Antes de comenzar, asegúrate de tener:
 cd d:\ScoutingFEB
 ```
 
-### Paso 2: Ejecutar el script de instalación
+### Paso 2: Instalar dependencias
 
 ```powershell
-.\install.ps1
-```
-
-Este script automáticamente:
-- Verifica que Python y pip estén instalados
-- Verifica que MongoDB esté instalado y ejecutándose
-- Instala todas las dependencias de Python necesarias
-
-### Paso 3: (Alternativa) Instalación manual
-
-Si prefieres instalar manualmente:
-
-```powershell
-# Instalar dependencias
+# Dependencias base (scraping, ML, ETL)
 pip install -r requirements.txt
+
+# Dependencias de interfaz gráfica (opcional pero recomendado)
+pip install -r requirements_ui.txt
 
 # Verificar que MongoDB esté ejecutándose
 net start MongoDB
@@ -43,11 +33,25 @@ net start MongoDB
 
 ## 🎯 Uso Básico
 
-### Opción 1: Usar el script de ejemplos (Recomendado)
+### Opción 1: Interfaz Gráfica (Más Fácil) 🆕
 
 ```powershell
-cd src
-python examples.py
+python run_ui.py
+```
+
+**La interfaz gráfica te permite:**
+- Ver equipos y sus proyecciones para próxima temporada
+- Scrapear nuevos partidos desde la FEB
+- Ejecutar el proceso ETL (MongoDB → SQLite)
+- Gestionar datos biográficos de jugadoras
+- Entrenar modelos ML automáticamente
+
+**Documentación completa:** [docs/UI_README.md](docs/UI_README.md)
+
+### Opción 2: Script de Evaluación de Equipos (CLI)
+
+```powershell
+python evaluate_team.py
 ```
 
 Esto te mostrará un menú interactivo con diferentes opciones:

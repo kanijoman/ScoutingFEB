@@ -61,6 +61,11 @@ ScoutingFEB es un proyecto que combina web scraping, análisis de datos y inteli
 
 ```
 ScoutingFEB/
+├── ui/                                 # 🆕 Interfaz gráfica
+│   ├── __init__.py
+│   ├── scouting_ui.py                 # Ventana principal
+│   └── data_admin.py                  # Widget de administración
+│
 ├── src/
 │   ├── __init__.py
 │   ├── main.py                         # Scraper principal
@@ -69,7 +74,7 @@ ScoutingFEB/
 │   ├── run_scraping.py                 # Script unificado de scraping
 │   ├── examples_incremental.py         # Ejemplos sistema incremental
 │   ├── test_incremental.py             # Tests
-│   ├── run_ml_pipeline.py              # 🆕 Pipeline completo ML
+│   ├── run_ml_pipeline.py              # Pipeline completo ML
 │   │
 │   ├── scraper/                        # Módulo de scraping
 │   │   ├── __init__.py
@@ -83,36 +88,40 @@ ScoutingFEB/
 │   ├── database/                       # Módulo de bases de datos
 │   │   ├── __init__.py
 │   │   ├── mongodb_client.py          # Cliente MongoDB
-│   │   └── sqlite_schema.py           # 🆕 Esquema SQLite
+│   │   └── sqlite_schema.py           # Esquema SQLite
 │   │
-│   └── ml/                             # 🆕 Módulo de Machine Learning
+│   └── ml/                             # Módulo de Machine Learning
 │       ├── __init__.py
 │       ├── etl_processor.py           # ETL MongoDB → SQLite
 │       ├── xgboost_model.py           # Modelos XGBoost + SHAP
-│       ├── name_normalizer.py         # 🆕 Normalización de nombres
-│       ├── player_identity_matcher.py # 🆕 Matching de identidades
-│       └── identity_manager_cli.py    # 🆕 CLI de gestión
+│       ├── name_normalizer.py         # Normalización de nombres
+│       ├── player_identity_matcher.py # Matching de identidades
+│       └── identity_manager_cli.py    # CLI de gestión
 │
-├── examples/                           # 🆕 Scripts de ejemplo
+├── docs/                               # 📚 Documentación
+│   ├── UI_README.md                   # Guía de interfaz gráfica
+│   ├── DATA_ADMIN_GUIDE.md            # Guía de administración de datos
+│   ├── ARCHITECTURE.md                # Arquitectura completa
+│   ├── ML_SYSTEM.md                   # Sistema ML
+│   ├── ML_EXECUTIVE_SUMMARY.md        # Resumen ejecutivo ML
+│   └── PLAYER_IDENTITY_SYSTEM.md      # Gestión de identidades
+│
+├── examples/                           # Scripts de ejemplo
 │   └── identity_system_examples.py    # Ejemplos del sistema
 │
-├── models/                             # 🆕 Modelos ML entrenados
+├── models/                             # Modelos ML entrenados
 │   ├── *.joblib                       # Modelos serializados
 │   ├── *_metadata.json                # Metadata
 │   └── *_shap_summary.png             # Gráficos SHAP
 │
-├── requirements.txt                    # Dependencias
+├── run_ui.py                          # 🆕 Lanzador de interfaz gráfica
+├── evaluate_team.py                   # Script de evaluación de equipos
+├── requirements.txt                   # Dependencias base
+├── requirements_ui.txt                # 🆕 Dependencias UI (PyQt6)
 ├── README.md                          # Este archivo
 ├── QUICKSTART.md                      # Guía rápida
 ├── CHANGELOG.md                       # Historial de cambios
-├── LICENSE
-│
-├── INCREMENTAL_SCRAPING.md            # 📚 Doc: Sistema incremental
-├── INCREMENTAL_SYSTEM_DIAGRAM.md      # 📚 Doc: Diagramas
-├── ML_SYSTEM.md                       # 📚 Doc: Sistema ML
-├── PLAYER_IDENTITY_SYSTEM.md          # 📚 Doc: Gestión de identidades
-├── IMPLEMENTATION_SUMMARY_IDENTITIES.md # 📚 Doc: Resumen implementación
-└── ARCHITECTURE.md                    # 📚 Doc: Arquitectura completa
+└── LICENSE
 ```
 
 ## Requisitos
@@ -215,13 +224,16 @@ python examples/identity_system_examples.py
 
 ## 📚 Documentación
 
-### Guías Principales
+### Guías de Usuario
 - **[QUICKSTART.md](QUICKSTART.md)** - Guía rápida de inicio
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Arquitectura completa del sistema
-- **[PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)** - 🆕 Sistema de gestión de identidades de jugadores
-- **[ML_SYSTEM.md](ML_SYSTEM.md)** - Sistema de Machine Learning con XGBoost + SHAP
-- **[MATCH_WEIGHTING.md](MATCH_WEIGHTING.md)** - Sistema de ponderación de partidos importantes
-- **[INCREMENTAL_SCRAPING.md](INCREMENTAL_SCRAPING.md)** - Sistema de scraping incremental
+- **[docs/UI_README.md](docs/UI_README.md)** - 🆕 Documentación de interfaz gráfica
+- **[docs/DATA_ADMIN_GUIDE.md](docs/DATA_ADMIN_GUIDE.md)** - 🆕 Guía de administración de datos
+
+### Documentación Técnica
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Arquitectura completa del sistema
+- **[docs/PLAYER_IDENTITY_SYSTEM.md](docs/PLAYER_IDENTITY_SYSTEM.md)** - Sistema de gestión de identidades
+- **[docs/ML_SYSTEM.md](docs/ML_SYSTEM.md)** - Sistema de Machine Learning con XGBoost + SHAP
+- **[docs/ML_EXECUTIVE_SUMMARY.md](docs/ML_EXECUTIVE_SUMMARY.md)** - Resumen ejecutivo del sistema ML
 
 ### Implementación y Cambios
 - **[IMPLEMENTATION_SUMMARY_IDENTITIES.md](IMPLEMENTATION_SUMMARY_IDENTITIES.md)** - 🆕 Resumen de implementación del sistema de identidades
@@ -232,6 +244,28 @@ python examples/identity_system_examples.py
 - **[examples/identity_system_examples.py](examples/identity_system_examples.py)** - 🆕 Ejemplos interactivos del sistema
 
 ## Uso
+
+### Interfaz Gráfica (Recomendado) 🆕
+
+La forma más fácil de usar ScoutingFEB es a través de la interfaz gráfica:
+
+```powershell
+# Instalar dependencias UI (solo primera vez)
+pip install -r requirements_ui.txt
+
+# Lanzar aplicación
+python run_ui.py
+```
+
+**La interfaz gráfica incluye:**
+- 🏀 **Evaluación de Equipos**: Visualiza plantillas con proyecciones ML
+- ⚙️ **Administración de Datos**: Scraping, ETL, gestión biográfica
+- 👤 **Análisis de Jugadoras**: (Próximamente)
+- 📊 **Estadísticas**: (Próximamente)
+
+**Guías detalladas:**
+- [docs/UI_README.md](docs/UI_README.md) - Documentación completa de la interfaz
+- [docs/DATA_ADMIN_GUIDE.md](docs/DATA_ADMIN_GUIDE.md) - Guía de administración de datos
 
 ### Sistema de Scraping Incremental
 
