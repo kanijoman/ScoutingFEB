@@ -49,12 +49,14 @@ def paso_1_crear_esquema():
 
 
 def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True, 
-                        candidate_threshold=0.50, consolidate_identities=True):
+                        candidate_threshold=0.50, consolidate_identities=True,
+                        incremental=True):
     """Paso 2: Ejecutar proceso ETL de MongoDB a SQLite."""
     print("\n" + "="*70)
     print("PASO 2: PROCESO ETL (MongoDB → SQLite)")
     print("="*70)
     print(f"Modo: {'PERFILES' if use_profiles else 'JUGADORES ÚNICOS'}")
+    print(f"Procesamiento: {'INCREMENTAL' if incremental else 'COMPLETO'}")
     if use_profiles:
         print(f"Generación de candidatos: {'Sí' if generate_candidates else 'No'}")
         if generate_candidates:
@@ -74,7 +76,8 @@ def paso_2_ejecutar_etl(limit=None, use_profiles=True, generate_candidates=True,
         etl.run_full_etl(
             limit=limit,
             generate_candidates=generate_candidates,
-            candidate_min_score=candidate_threshold
+            candidate_min_score=candidate_threshold,
+            incremental=incremental
         )
         
         # Consolidar identidades si está habilitado
@@ -266,6 +269,8 @@ def main():
                        help='Score mínimo para generar candidatos (default: 0.50)')
     parser.add_argument('--no-consolidate', action='store_true',
                        help='No consolidar identidades automáticamente después del ETL')
+    parser.add_argument('--full-etl', action='store_true',
+                       help='Procesar todos los partidos (modo completo, no incremental)')
     
     args = parser.parse_args()
     
@@ -295,7 +300,8 @@ def main():
             use_profiles=not args.legacy_mode,
             generate_candidates=not args.no_candidates,
             candidate_threshold=args.candidate_threshold,
-            consolidate_identities=not args.no_consolidate
+            consolidate_identities=not args.no_consolidate,
+            incremental=not args.full_etl  # Por defecto incremental, a menos que se use --full-etl
         ):
             logger.error("✗ Error en Paso 2 (ETL)")
             return

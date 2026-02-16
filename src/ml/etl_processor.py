@@ -46,6 +46,7 @@ class FEBDataETL:
             use_profiles: Si True, usa sistema de perfiles. Si False, usa jugadores únicos
         """
         self.mongo_client = MongoDBClient(mongodb_uri, mongodb_db)
+        self.mongo_db = self.mongo_client.db  # Acceso directo a la BD
         self.sqlite_path = sqlite_path
         self.logger = logging.getLogger(__name__)
         self.use_profiles = use_profiles
@@ -64,18 +65,33 @@ class FEBDataETL:
         conn.row_factory = sqlite3.Row
         return conn
     
+    def get_processed_game_ids(self, conn: sqlite3.Connection) -> set:
+        """Obtener IDs de partidos ya procesados en SQLite.
+        
+        Args:
+            conn: Conexión SQLite
+            
+        Returns:
+            Set con los game_ids ya procesados
+        """
+        cursor = conn.cursor()
+        cursor.execute("SELECT game_id FROM games")
+        return {row[0] for row in cursor.fetchall()}
+    
     # =========================================================================
     # EXTRACT - Extracción desde MongoDB
     # =========================================================================
     
     def extract_games_from_mongodb(self, collection_name: str, 
-                                   limit: Optional[int] = None) -> List[Dict]:
+                                   limit: Optional[int] = None,
+                                   exclude_game_ids: Optional[set] = None) -> List[Dict]:
         """
         Extraer partidos desde MongoDB.
         
         Args:
             collection_name: Nombre de la colección ('all_feb_games_masc' o 'all_feb_games_fem')
             limit: Límite opcional de documentos
+            exclude_game_ids: Set de game_ids a excluir (para modo incremental)
             
         Returns:
             Lista de documentos de partidos
@@ -84,14 +100,25 @@ class FEBDataETL:
         
         collection = self.mongo_db[collection_name]
         
-        query = {}
-        cursor = collection.find(query)
+        # Extraer todos los partidos (sin query de exclusión)
+        # Nota: Filtrar con $nin en listas grandes (>10K) puede fallar
+        # Es más eficiente extraer y filtrar en Python
+        cursor = collection.find({})
         
         if limit:
             cursor = cursor.limit(limit)
         
         games = list(cursor)
-        self.logger.info(f"✓ Extraídos {len(games)} partidos")
+        self.logger.info(f"✓ Extraídos {len(games)} partidos desde MongoDB")
+        
+        # Filtrar en Python si hay exclusiones (modo incremental)
+        if exclude_game_ids:
+            # Convertir a strings porque MongoDB almacena game_code como string
+            exclude_codes_str = {str(gid) for gid in exclude_game_ids}
+            games_before = len(games)
+            games = [g for g in games if g["HEADER"]["game_code"] not in exclude_codes_str]
+            games_excluded = games_before - len(games)
+            self.logger.info(f"Modo incremental: filtrados {games_excluded} partidos ya procesados, {len(games)} nuevos")
         
         return games
     
@@ -1321,7 +1348,8 @@ class FEBDataETL:
     def run_full_etl(self, collections: List[str] = None, 
                     limit: Optional[int] = None,
                     generate_candidates: bool = True,
-                    candidate_min_score: float = 0.50):
+                    candidate_min_score: float = 0.50,
+                    incremental: bool = True):
         """
         Ejecutar el proceso ETL completo.
         
@@ -1330,6 +1358,7 @@ class FEBDataETL:
             limit: Límite opcional de partidos por colección
             generate_candidates: Si True, genera candidatos de matching (solo con use_profiles=True)
             candidate_min_score: Score mínimo para generar candidatos
+            incremental: Si True, solo procesa partidos nuevos (default: True)
         """
         if collections is None:
             collections = ["all_feb_games_masc", "all_feb_games_fem"]
@@ -1338,19 +1367,35 @@ class FEBDataETL:
         self.logger.info("INICIANDO PROCESO ETL: MongoDB -> SQLite")
         self.logger.info("="*70)
         self.logger.info(f"Modo: {'PERFILES' if self.use_profiles else 'JUGADORES ÚNICOS'}")
+        self.logger.info(f"Procesamiento: {'INCREMENTAL' if incremental else 'COMPLETO'}")
         
         start_time = datetime.now()
         total_games = 0
+        total_games_skipped = 0
         total_players = 0
         
         conn = self.get_connection()
         
         try:
+            # Obtener game_ids ya procesados si modo incremental
+            processed_game_ids = set()
+            if incremental:
+                processed_game_ids = self.get_processed_game_ids(conn)
+                self.logger.info(f"Partidos ya procesados en SQLite: {len(processed_game_ids)}")
+            
             for collection_name in collections:
                 self.logger.info(f"\nProcesando colección: {collection_name}")
                 
-                # EXTRACT
-                games = self.extract_games_from_mongodb(collection_name, limit)
+                # EXTRACT (con exclusión de partidos ya procesados si incremental)
+                games = self.extract_games_from_mongodb(
+                    collection_name, 
+                    limit,
+                    exclude_game_ids=processed_game_ids if incremental else None
+                )
+                
+                if incremental and len(games) == 0:
+                    self.logger.info(f"✓ No hay partidos nuevos en {collection_name}")
+                    continue
                 
                 # TRANSFORM & LOAD
                 self.logger.info(f"Transformando y cargando {len(games)} partidos...")
