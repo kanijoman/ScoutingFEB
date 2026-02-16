@@ -1,8 +1,8 @@
 """
-Módulo para matching y scoring de identidades de jugadores.
+Module for matching and scoring player identities.
 
-Implementa el sistema de candidate_score para identificar perfiles
-que probablemente corresponden al mismo jugador real.
+Implements the candidate_score system to identify profiles
+that likely correspond to the same real player.
 """
 
 import sqlite3
@@ -14,15 +14,15 @@ from ml.name_normalizer import NameNormalizer
 
 
 class PlayerIdentityMatcher:
-    """Gestor de matching de identidades de jugadores."""
+    """Player identity matching manager."""
     
-    # Pesos para candidate_score
+    # Weights for candidate_score
     WEIGHT_NAME_MATCH = 0.40
     WEIGHT_AGE_MATCH = 0.30
     WEIGHT_TEAM_OVERLAP = 0.20
     WEIGHT_TIMELINE_FIT = 0.10
     
-    # Thresholds para clasificación de confianza
+    # Thresholds for confidence classification
     THRESHOLD_VERY_HIGH = 0.85
     THRESHOLD_HIGH = 0.70
     THRESHOLD_MEDIUM = 0.50
@@ -30,10 +30,10 @@ class PlayerIdentityMatcher:
     
     def __init__(self, db_path: str):
         """
-        Inicializar el matcher.
+        Initialize the matcher.
         
         Args:
-            db_path: Ruta a la base de datos SQLite
+            db_path: Path to the SQLite database
         """
         self.db_path = db_path
         self.name_normalizer = NameNormalizer()
@@ -45,7 +45,7 @@ class PlayerIdentityMatcher:
         profile2: Dict
     ) -> Tuple[float, Dict[str, float]]:
         """
-        Calcular candidate_score entre dos perfiles.
+        Calculate candidate_score between two profiles.
         
         Formula:
         candidate_score = 0.40 * name_match +
@@ -54,11 +54,11 @@ class PlayerIdentityMatcher:
                          0.10 * timeline_fit
         
         Args:
-            profile1: Primer perfil
-            profile2: Segundo perfil
+            profile1: First profile
+            profile2: Second profile
             
         Returns:
-            Tupla (candidate_score, componentes_dict)
+            Tuple (candidate_score, components_dict)
         """
         # 1. Name match (40%)
         name_match = self.name_normalizer.calculate_name_similarity(
@@ -75,7 +75,7 @@ class PlayerIdentityMatcher:
         # 4. Timeline fit (10%)
         timeline_fit = self._calculate_timeline_fit(profile1, profile2)
         
-        # Calcular score total
+        # Calculate total score
         candidate_score = (
             self.WEIGHT_NAME_MATCH * name_match +
             self.WEIGHT_AGE_MATCH * age_match +
@@ -94,29 +94,29 @@ class PlayerIdentityMatcher:
     
     def _calculate_age_match(self, profile1: Dict, profile2: Dict) -> float:
         """
-        Calcular score de similitud de edad.
+        Calculate age similarity score.
         
         Args:
-            profile1: Primer perfil
-            profile2: Segundo perfil
+            profile1: First profile
+            profile2: Second profile
             
         Returns:
-            Score de 0.0 a 1.0
+            Score from 0.0 to 1.0
         """
         birth_year1 = profile1.get('birth_year')
         birth_year2 = profile2.get('birth_year')
         
-        # Si no tenemos información de edad, score neutral
+        # If no age information, neutral score
         if not birth_year1 or not birth_year2:
             return 0.5
         
-        # Diferencia de años
+        # Years difference
         age_diff = abs(birth_year1 - birth_year2)
         
         if age_diff == 0:
             return 1.0
         elif age_diff == 1:
-            return 0.7  # Puede ser error en datos
+            return 0.7  # Could be data error
         elif age_diff == 2:
             return 0.3
         else:
@@ -124,45 +124,45 @@ class PlayerIdentityMatcher:
     
     def _calculate_team_overlap(self, profile1: Dict, profile2: Dict) -> float:
         """
-        Calcular score de solapamiento de equipos.
+        Calculate team overlap score.
         
-        Si ambos perfiles han jugado en el mismo equipo, es más probable
-        que sean el mismo jugador.
+        If both profiles have played for the same team, they're more likely
+        to be the same player.
         
         Args:
-            profile1: Primer perfil
-            profile2: Segundo perfil
+            profile1: First profile
+            profile2: Second profile
             
         Returns:
-            Score de 0.0 a 1.0
+            Score from 0.0 to 1.0
         """
         team1 = profile1.get('team_id')
         team2 = profile2.get('team_id')
         
         if not team1 or not team2:
-            return 0.3  # Score neutral si falta información
+            return 0.3  # Neutral score if missing information
         
-        # Mismo equipo = alta probabilidad
+        # Same team = high probability
         if team1 == team2:
             return 1.0
         
-        # Equipos diferentes - verificar si son equipos vinculados
-        # (requeriría lógica adicional con información de equipos vinculados)
-        # Por ahora, asumimos que son diferentes
+        # Different teams - check if they are linked teams
+        # (would require additional logic with linked team information)
+        # For now, assume they are different
         return 0.2
     
     def _calculate_timeline_fit(self, profile1: Dict, profile2: Dict) -> float:
         """
-        Calcular score de continuidad temporal.
+        Calculate temporal continuity score.
         
-        Verifica si los perfiles aparecen en temporadas consecutivas o cercanas.
+        Verifies if profiles appear in consecutive or close seasons.
         
         Args:
-            profile1: Primer perfil
-            profile2: Segundo perfil
+            profile1: First profile
+            profile2: Second profile
             
         Returns:
-            Score de 0.0 a 1.0
+            Score from 0.0 to 1.0
         """
         season1 = profile1.get('season')
         season2 = profile2.get('season')
@@ -170,7 +170,7 @@ class PlayerIdentityMatcher:
         if not season1 or not season2:
             return 0.3
         
-        # Extraer años de las temporadas (formato: "2023/24")
+        # Extract years from seasons (format: "2023/24")
         try:
             year1 = int(season1.split('/')[0])
             year2 = int(season2.split('/')[0])
@@ -178,32 +178,32 @@ class PlayerIdentityMatcher:
             year_diff = abs(year1 - year2)
             
             if year_diff == 0:
-                # Misma temporada, probablemente fichaje
+                # Same season, probably transfer
                 return 0.8
             elif year_diff == 1:
-                # Temporadas consecutivas
+                # Consecutive seasons
                 return 1.0
             elif year_diff == 2:
-                # Gap de un año (lesión, sin jugar)
+                # One year gap (injury, not playing)
                 return 0.6
             elif year_diff <= 4:
-                # Gap más largo
+                # Longer gap
                 return 0.3
             else:
-                # Gap muy largo, probablemente jugadores diferentes
+                # Very long gap, probably different players
                 return 0.1
         except:
             return 0.3
     
     def get_confidence_level(self, candidate_score: float) -> str:
         """
-        Clasificar nivel de confianza basado en candidate_score.
+        Classify confidence level based on candidate_score.
         
         Args:
-            candidate_score: Score del candidato
+            candidate_score: Candidate score
             
         Returns:
-            Nivel de confianza ('very_high', 'high', 'medium', 'low')
+            Confidence level ('very_high', 'high', 'medium', 'low')
         """
         if candidate_score >= self.THRESHOLD_VERY_HIGH:
             return 'very_high'
@@ -220,14 +220,14 @@ class PlayerIdentityMatcher:
         min_score: float = 0.30
     ) -> List[Dict]:
         """
-        Buscar perfiles candidatos para un perfil dado.
+        Find candidate profiles for a given profile.
         
         Args:
-            profile_id: ID del perfil a buscar
-            min_score: Score mínimo para considerar candidato
+            profile_id: Profile ID to search for
+            min_score: Minimum score to consider candidate
             
         Returns:
-            Lista de candidatos ordenados por score
+            List of candidates ordered by score
         """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row

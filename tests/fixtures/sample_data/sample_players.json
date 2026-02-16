@@ -1,0 +1,34 @@
+{
+  "players": [
+    {
+      "nombre": "María García López",
+      "nombre_normalizado": "maria garcia lopez",
+      "fecha_nacimiento": "2002-03-15",
+      "nacionalidad": "ESP",
+      "posicion": "Base",
+      "altura": 170,
+      "equipo_actual": "CB Avenida",
+      "temporada": "2024-2025"
+    },
+    {
+      "nombre": "Ana Martín Ruiz",
+      "nombre_normalizado": "ana martin ruiz",
+      "fecha_nacimiento": "1998-07-22",
+      "nacionalidad": "ESP",
+      "posicion": "Alero",
+      "altura": 180,
+      "equipo_actual": "CB Avenida",
+      "temporada": "2024-2025"
+    },
+    {
+      "nombre": "Laura Fernández",
+      "nombre_normalizado": "laura fernandez",
+      "fecha_nacimiento": "2001-11-05",
+      "nacionalidad": "ESP",
+      "posicion": "Escolta",
+      "altura": 175,
+      "equipo_actual": "Perfumerías Avenida",
+      "temporada": "2024-2025"
+    }
+  ]
+}

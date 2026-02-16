@@ -1,11 +1,11 @@
 """
-Módulo de Machine Learning con XGBoost y SHAP para predicción de rendimiento de jugadores.
+Machine Learning module with XGBoost and SHAP for player performance prediction.
 
-Este módulo incluye:
-- Preparación de features desde SQLite
-- Entrenamiento de modelos XGBoost
-- Interpretabilidad con SHAP
-- Predicción de rendimiento futuro de jugadores
+This module includes:
+- Feature preparation from SQLite
+- XGBoost model training
+- Interpretability with SHAP
+- Future player performance prediction
 """
 
 import sqlite3
@@ -28,22 +28,22 @@ try:
     import matplotlib.pyplot as plt
 except ImportError:
     raise ImportError(
-        "Se requieren librerías de ML. Instalar con: "
+        "ML libraries required. Install with: "
         "pip install xgboost shap scikit-learn matplotlib"
     )
 
 
 class PlayerPerformanceModel:
-    """Modelo de ML para predecir rendimiento de jugadores."""
+    """ML model for predicting player performance."""
     
     def __init__(self, db_path: str = "scouting_feb.db", 
                  model_dir: str = "models"):
         """
-        Inicializar modelo.
+        Initialize model.
         
         Args:
-            db_path: Ruta a base de datos SQLite
-            model_dir: Directorio para guardar modelos
+            db_path: Path to SQLite database
+            model_dir: Directory to save models
         """
         self.db_path = db_path
         self.model_dir = Path(model_dir)
@@ -51,7 +51,7 @@ class PlayerPerformanceModel:
         
         self.logger = logging.getLogger(__name__)
         
-        # Modelos entrenados
+        # Trained models
         self.models = {}
         self.scalers = {}
         self.feature_names = []
@@ -61,40 +61,40 @@ class PlayerPerformanceModel:
         self.explainers = {}
     
     def get_connection(self) -> sqlite3.Connection:
-        """Obtener conexión a SQLite."""
+        """Get SQLite connection."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
     
     # =========================================================================
-    # PREPARACIÓN DE DATOS
+    # DATA PREPARATION
     # =========================================================================
     
     def prepare_training_data(self, target: str = "next_game_points",
                              min_games: int = 5) -> Tuple[pd.DataFrame, pd.Series]:
         """
-        Preparar datos de entrenamiento desde SQLite.
+        Prepare training data from SQLite.
         
         Args:
-            target: Variable objetivo ('next_game_points', 'next_game_efficiency', etc.)
-            min_games: Mínimo de partidos jugados para incluir jugador
+            target: Target variable ('next_game_points', 'next_game_efficiency', etc.)
+            min_games: Minimum games played to include player
             
         Returns:
-            Tupla (features_df, target_series)
+            Tuple (features_df, target_series)
         """
-        self.logger.info(f"Preparando datos de entrenamiento para target: {target}")
+        self.logger.info(f"Preparing training data for target: {target}")
         self.target_name = target
         
         conn = self.get_connection()
         
-        # Query para obtener features y targets
+        # Query to get features and targets
         query = """
         SELECT 
             pgs.player_id,
             pgs.game_id,
             pp.consolidated_player_id,
 
-            -- Features del partido actual
+            -- Current game features
             pgs.age_at_game,
             pgs.minutes_played,
             pgs.points,
@@ -113,14 +113,14 @@ class PlayerPerformanceModel:
             pgs.is_home,
             pgs.team_won,
             
-            -- Z-Scores normalizados (CRÍTICOS para comparar épocas/ligas)
+            -- Normalized Z-Scores (CRITICAL for comparing eras/leagues)
             pgs.z_offensive_rating,
             pgs.z_player_efficiency_rating,
             pgs.z_true_shooting_pct,
             pgs.z_usage_rate,
             pgs.z_minutes,
             
-            -- Features agregadas del jugador
+            -- Aggregated player features
             pas.avg_age,
             pas.avg_minutes,
             pas.avg_points,
@@ -136,7 +136,7 @@ class PlayerPerformanceModel:
             pas.win_percentage,
             pas.games_played as season_games_played,
             
-            -- Z-Scores y percentiles agregados
+            -- Aggregated Z-Scores and percentiles
             pas.z_avg_offensive_rating,
             pas.z_avg_player_efficiency_rating,
             pas.z_avg_true_shooting_pct,
@@ -144,7 +144,7 @@ class PlayerPerformanceModel:
             pas.percentile_offensive_rating,
             pas.percentile_player_efficiency_rating,
             
-            -- ✨ NUEVAS FEATURES: Normalización per-36 minutos
+            -- ✨ NEW FEATURES: Per-36 minutes normalization
             ppm.pts_per_36,
             ppm.ast_per_36,
             ppm.reb_per_36,

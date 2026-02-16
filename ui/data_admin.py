@@ -17,7 +17,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QTextCursor
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+# Default database path
+DEFAULT_DB_PATH = PROJECT_ROOT / "scouting_feb.db"
 
 
 class ScrapingThread(QThread):
@@ -568,7 +572,7 @@ class DataAdminWidget(QWidget):
         
         try:
             import sqlite3
-            db_path = Path(__file__).parent.parent / "scouting_feb.db"
+            db_path = DEFAULT_DB_PATH
             conn = sqlite3.connect(str(db_path))
             cursor = conn.cursor()
             

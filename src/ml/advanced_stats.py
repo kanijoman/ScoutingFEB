@@ -1,7 +1,7 @@
 """
-Módulo para calcular estadísticas avanzadas de baloncesto.
+Module for calculating advanced basketball statistics.
 
-Este módulo proporciona funciones para calcular métricas avanzadas como:
+This module provides functions to calculate advanced metrics such as:
 - True Shooting % (TS%)
 - Effective Field Goal % (eFG%)
 - Offensive Rating (OER)
@@ -17,19 +17,19 @@ import math
 
 def calculate_true_shooting_pct(pts: int, fga: int, fta: int) -> Optional[float]:
     """
-    Calcular True Shooting Percentage.
+    Calculate True Shooting Percentage.
     
     TS% = PTS / (2 * (FGA + 0.44 * FTA))
     
-    Mide la eficiencia de tiro considerando FG, 3P y FT.
+    Measures shooting efficiency considering FG, 3P and FT.
     
     Args:
-        pts: Puntos anotados
-        fga: Tiros de campo intentados
-        fta: Tiros libres intentados
+        pts: Points scored
+        fga: Field goals attempted
+        fta: Free throws attempted
         
     Returns:
-        True Shooting % o None si no hay datos
+        True Shooting % or None if no data available
     """
     denominator = 2 * (fga + 0.44 * fta)
     if denominator == 0:
@@ -39,19 +39,19 @@ def calculate_true_shooting_pct(pts: int, fga: int, fta: int) -> Optional[float]
 
 def calculate_effective_fg_pct(fgm: int, fg3m: int, fga: int) -> Optional[float]:
     """
-    Calcular Effective Field Goal Percentage.
+    Calculate Effective Field Goal Percentage.
     
     eFG% = (FGM + 0.5 * 3PM) / FGA
     
-    Ajusta el porcentaje de tiro de campo dando peso extra a los triples.
+    Adjusts field goal percentage giving extra weight to three-pointers.
     
     Args:
-        fgm: Tiros de campo convertidos
-        fg3m: Triples convertidos
-        fga: Tiros de campo intentados
+        fgm: Field goals made
+        fg3m: Three-pointers made
+        fga: Field goals attempted
         
     Returns:
-        Effective FG% o None si no hay datos
+        Effective FG% or None if no data available
     """
     if fga == 0:
         return None
@@ -60,19 +60,19 @@ def calculate_effective_fg_pct(fgm: int, fg3m: int, fga: int) -> Optional[float]
 
 def calculate_turnover_pct(tov: int, fga: int, fta: int) -> Optional[float]:
     """
-    Calcular Turnover Percentage.
+    Calculate Turnover Percentage.
     
     TOV% = TOV / (FGA + 0.44 * FTA + TOV)
     
-    Estima el porcentaje de posesiones que terminan en pérdida.
+    Estimates the percentage of possessions that end in a turnover.
     
     Args:
-        tov: Pérdidas de balón
-        fga: Tiros de campo intentados
-        fta: Tiros libres intentados
+        tov: Turnovers
+        fga: Field goals attempted
+        fta: Free throws attempted
         
     Returns:
-        Turnover % o None si no hay datos
+        Turnover % or None if no data available
     """
     denominator = fga + 0.44 * fta + tov
     if denominator == 0:
@@ -82,18 +82,18 @@ def calculate_turnover_pct(tov: int, fga: int, fta: int) -> Optional[float]:
 
 def calculate_free_throw_rate(fta: int, fga: int) -> Optional[float]:
     """
-    Calcular Free Throw Rate.
+    Calculate Free Throw Rate.
     
     FTr = FTA / FGA
     
-    Mide la capacidad del jugador para generar tiros libres.
+    Measures the player's ability to get to the free-throw line.
     
     Args:
-        fta: Tiros libres intentados
-        fga: Tiros de campo intentados
+        fta: Free throws attempted
+        fga: Field goals attempted
         
     Returns:
-        Free Throw Rate o None si no hay datos
+        Free Throw Rate or None if no data available
     """
     if fga == 0:
         return None
@@ -102,18 +102,18 @@ def calculate_free_throw_rate(fta: int, fga: int) -> Optional[float]:
 
 def calculate_assist_to_turnover_ratio(ast: int, tov: int) -> Optional[float]:
     """
-    Calcular Assist to Turnover Ratio.
+    Calculate Assist to Turnover Ratio.
     
     AST/TOV = AST / TOV
     
-    Mide la eficiencia en el manejo del balón.
+    Measures ball-handling efficiency.
     
     Args:
-        ast: Asistencias
-        tov: Pérdidas
+        ast: Assists
+        tov: Turnovers
         
     Returns:
-        AST/TOV ratio o None si TOV = 0
+        AST/TOV ratio or None if TOV = 0
     """
     if tov == 0:
         return None if ast == 0 else float(ast)  # Infinite ratio
@@ -124,33 +124,33 @@ def calculate_offensive_rating(pts: int, fga: int, fta: int, tov: int,
                                team_possessions: Optional[int] = None,
                                minutes: Optional[float] = None) -> Optional[float]:
     """
-    Calcular Offensive Rating (OER) simplificado.
+    Calculate simplified Offensive Rating (OER).
     
-    OER estima los puntos generados por 100 posesiones.
+    OER estimates points produced per 100 possessions.
     
-    Versión simplificada cuando no tenemos posesiones del equipo:
+    Simplified version when team possessions are not available:
     OER = (PTS / Possessions_estimate) * 100
     
-    Donde Possessions_estimate = FGA + 0.44*FTA + TOV
+    Where Possessions_estimate = FGA + 0.44*FTA + TOV
     
     Args:
-        pts: Puntos anotados
-        fga: Tiros de campo intentados
-        fta: Tiros libres intentados
-        tov: Pérdidas
-        team_possessions: Posesiones del equipo (opcional)
-        minutes: Minutos jugados (opcional, para ajuste)
+        pts: Points scored
+        fga: Field goals attempted
+        fta: Free throws attempted
+        tov: Turnovers
+        team_possessions: Team possessions (optional)
+        minutes: Minutes played (optional, for adjustment)
         
     Returns:
-        Offensive Rating o None si no hay datos
+        Offensive Rating or None if no data available
     """
-    # Estimación de posesiones individuales
+    # Estimate individual possessions
     individual_possessions = fga + 0.44 * fta + tov
     
     if individual_possessions == 0:
         return None
     
-    # OER simplificado
+    # Simplified OER
     oer = (pts / individual_possessions) * 100
     
     return oer
@@ -158,25 +158,31 @@ def calculate_offensive_rating(pts: int, fga: int, fta: int, tov: int,
 
 def calculate_player_efficiency_rating(stats: Dict) -> Optional[float]:
     """
-    Calcular Player Efficiency Rating (PER) simplificado.
+    Calculate simplified Player Efficiency Rating (PER).
     
-    PER combina múltiples estadísticas en una métrica única de eficiencia.
+    PER combines multiple statistics into a single efficiency metric.
+    This is a simplified version without pace and league adjustments.
     
-    Fórmula simplificada (sin ajustes de pace y liga):
-    PER = (PTS + REB + AST + STL + BLK - Missed_FG - Missed_FT - TOV) / MP
+    Formula:
+        PER = [(PTS + REB + AST + STL + BLK - Missed_FG - Missed_FT - TOV) / MP] * 15
+    
+    The result is scaled by 15 to approximate standard PER values.
     
     Args:
-        stats: Diccionario con estadísticas del jugador:
-            - pts, reb, ast, stl, blk, fgm, fga, ftm, fta, tov, minutes
+        stats: Dictionary with player statistics:
+            - pts, reb, ast, stl, blk: Positive contributions
+            - fgm, fga, ftm, fta: Shooting stats (to calculate misses)
+            - tov: Turnovers
+            - minutes: Minutes played
             
     Returns:
-        PER o None si no hay minutos
+        Player Efficiency Rating (scaled) or None if no minutes played
     """
     minutes = stats.get('minutes', 0)
     if minutes == 0:
         return None
     
-    # Componentes positivos
+    # Positive components
     positive = (
         stats.get('pts', 0) +
         stats.get('reb', 0) +
@@ -185,7 +191,7 @@ def calculate_player_efficiency_rating(stats: Dict) -> Optional[float]:
         stats.get('blk', 0)
     )
     
-    # Componentes negativos
+    # Negative components
     missed_fg = stats.get('fga', 0) - stats.get('fgm', 0)
     missed_ft = stats.get('fta', 0) - stats.get('ftm', 0)
     
@@ -197,8 +203,8 @@ def calculate_player_efficiency_rating(stats: Dict) -> Optional[float]:
     
     per = (positive - negative) / minutes
     
-    # Escalar a valores típicos (multiplicar por factor)
-    per = per * 15  # Factor de escala para aproximar PER estándar
+    # Scale to typical values (multiply by factor)
+    per = per * 15  # Scaling factor to approximate standard PER
     
     return per
 
@@ -210,28 +216,33 @@ def calculate_usage_rate(fga: int, fta: int, tov: int,
                          minutes: Optional[float] = None,
                          team_minutes: Optional[float] = None) -> Optional[float]:
     """
-    Calcular Usage Rate.
+    Calculate Usage Rate (USG%).
     
-    USG% estima el porcentaje de posesiones del equipo usadas por el jugador.
+    Usage Rate estimates the percentage of team possessions used by the player
+    while on the court. A higher usage rate indicates the player is more involved
+    in the team's offensive possessions.
     
-    Fórmula simplificada sin stats del equipo:
-    USG% = (FGA + 0.44*FTA + TOV) / Minutes * Factor
+    Formula with team stats:
+        USG% = 100 * [(FGA + 0.44*FTA + TOV) * (TM_MP/5)] / (MP * (TM_FGA + 0.44*TM_FTA + TM_TOV))
+    
+    Simplified formula without team stats:
+        USG% = [(FGA + 0.44*FTA + TOV) / Minutes] * 100
     
     Args:
-        fga, fta, tov: Estadísticas del jugador
-        team_fga, team_fta, team_tov: Estadísticas del equipo (opcional)
-        minutes: Minutos del jugador
-        team_minutes: Minutos totales del equipo (opcional)
+        fga, fta, tov: Player field goal attempts, free throw attempts, turnovers
+        team_fga, team_fta, team_tov: Team statistics (optional, for full formula)
+        minutes: Player minutes played
+        team_minutes: Total team minutes (optional, for full formula)
         
     Returns:
-        Usage Rate o None si no hay datos
+        Usage Rate percentage or None if insufficient data
     """
     if minutes is None or minutes == 0:
         return None
     
     player_possessions = fga + 0.44 * fta + tov
     
-    # Si tenemos stats del equipo, usar fórmula completa
+    # If we have team stats, use complete formula
     if all(x is not None for x in [team_fga, team_fta, team_tov, team_minutes]):
         team_possessions = team_fga + 0.44 * team_fta + team_tov
         if team_possessions == 0:
@@ -240,7 +251,7 @@ def calculate_usage_rate(fga: int, fta: int, tov: int,
         usage = 100 * (player_possessions * (team_minutes / 5)) / (minutes * team_possessions)
         return usage
     
-    # Estimación simplificada
+    # Simplified estimate
     usage = (player_possessions / minutes) * 100
     return usage
 
@@ -253,38 +264,38 @@ def calculate_rebound_percentages(player_orb: int, player_drb: int,
                                   minutes: Optional[float] = None,
                                   team_minutes: Optional[float] = None) -> Dict[str, Optional[float]]:
     """
-    Calcular Offensive y Defensive Rebound Percentages.
+    Calculate Offensive and Defensive Rebound Percentages.
     
     ORB% = ORB / (ORB_team + DRB_opponent)
     DRB% = DRB / (DRB_team + ORB_opponent)
     
     Args:
-        player_orb, player_drb: Rebotes del jugador
-        team_orb, team_drb: Rebotes del equipo (opcional)
-        opponent_orb, opponent_drb: Rebotes del rival (opcional)
-        minutes, team_minutes: Para ajuste (opcional)
+        player_orb, player_drb: Player rebounds
+        team_orb, team_drb: Team rebounds (optional)
+        opponent_orb, opponent_drb: Opponent rebounds (optional)
+        minutes, team_minutes: For adjustment (optional)
         
     Returns:
-        Dict con 'orb_pct' y 'drb_pct' o None si no hay datos
+        Dict with 'orb_pct' and 'drb_pct' or None if no data available
     """
     result = {
         'orb_pct': None,
         'drb_pct': None
     }
     
-    # Calcular ORB% si tenemos datos del equipo y rival
+    # Calculate ORB% if we have team and opponent data
     if all(x is not None for x in [team_orb, opponent_drb]) and (team_orb + opponent_drb) > 0:
         result['orb_pct'] = player_orb / (team_orb + opponent_drb)
         
-        # Ajustar por minutos si disponible
+        # Adjust by minutes if available
         if minutes and team_minutes and team_minutes > 0:
             result['orb_pct'] = result['orb_pct'] * (team_minutes / (5 * minutes))
     
-    # Calcular DRB% si tenemos datos del equipo y rival
+    # Calculate DRB% if we have team and opponent data
     if all(x is not None for x in [team_drb, opponent_orb]) and (team_drb + opponent_orb) > 0:
         result['drb_pct'] = player_drb / (team_drb + opponent_orb)
         
-        # Ajustar por minutos si disponible
+        # Adjust by minutes if available
         if minutes and team_minutes and team_minutes > 0:
             result['drb_pct'] = result['drb_pct'] * (team_minutes / (5 * minutes))
     
@@ -293,19 +304,19 @@ def calculate_rebound_percentages(player_orb: int, player_drb: int,
 
 def calculate_win_shares(stats: Dict, team_stats: Optional[Dict] = None) -> Optional[float]:
     """
-    Calcular Win Shares (WS) simplificado.
+    Calculate simplified Win Shares (WS).
     
-    WS estima la contribución del jugador a las victorias del equipo.
+    WS estimates the player's contribution to team wins.
     
-    Fórmula simplificada:
+    Simplified formula:
     WS = (PER * minutes / 40) / 100
     
     Args:
-        stats: Estadísticas del jugador (debe incluir lo necesario para PER)
-        team_stats: Estadísticas del equipo (opcional)
+        stats: Player statistics (must include what's needed for PER)
+        team_stats: Team statistics (optional)
         
     Returns:
-        Win Shares o None si no se puede calcular
+        Win Shares or None if cannot be calculated
     """
     per = calculate_player_efficiency_rating(stats)
     if per is None:
@@ -315,7 +326,7 @@ def calculate_win_shares(stats: Dict, team_stats: Optional[Dict] = None) -> Opti
     if minutes == 0:
         return None
     
-    # Estimación simplificada de Win Shares
+    # Simplified Win Shares estimate
     ws = (per * minutes / 40) / 100
     
     return ws
@@ -325,19 +336,30 @@ def calculate_all_advanced_stats(stats: Dict,
                                  team_stats: Optional[Dict] = None,
                                  opponent_stats: Optional[Dict] = None) -> Dict[str, Optional[float]]:
     """
-    Calcular todas las estadísticas avanzadas de un jugador.
+    Calculate all advanced statistics for a player.
+    
+    Computes comprehensive advanced metrics including efficiency ratings,
+    usage rates, rebound percentages, and win shares.
     
     Args:
-        stats: Dict con estadísticas básicas del jugador
-        team_stats: Dict con estadísticas del equipo (opcional)
-        opponent_stats: Dict con estadísticas del rival (opcional)
+        stats: Dict with basic player statistics (pts, fga, fta, fgm, fg3m,
+               ast, tov, orb, drb, stl, blk, minutes, etc.)
+        team_stats: Dict with team statistics (optional, improves accuracy)
+        opponent_stats: Dict with opponent statistics (optional)
         
     Returns:
-        Dict con todas las métricas avanzadas calculadas
+        Dict with all calculated advanced metrics. Keys include:
+        - true_shooting_pct, effective_fg_pct
+        - turnover_pct, free_throw_rate
+        - assist_to_turnover_ratio
+        - offensive_rating, player_efficiency_rating
+        - usage_rate
+        - offensive_rebound_pct, defensive_rebound_pct
+        - win_shares, win_shares_per_36
     """
     result = {}
     
-    # Métricas de eficiencia
+    # Efficiency metrics
     result['true_shooting_pct'] = calculate_true_shooting_pct(
         stats.get('pts', 0),
         stats.get('fga', 0),
@@ -350,7 +372,7 @@ def calculate_all_advanced_stats(stats: Dict,
         stats.get('fga', 0)
     )
     
-    # Porcentajes
+    # Percentages
     result['turnover_pct'] = calculate_turnover_pct(
         stats.get('tov', 0),
         stats.get('fga', 0),
@@ -390,7 +412,7 @@ def calculate_all_advanced_stats(stats: Dict,
         team_minutes=team_stats.get('minutes') if team_stats else None
     )
     
-    # Rebotes
+    # Rebounds
     reb_pcts = calculate_rebound_percentages(
         stats.get('orb', 0),
         stats.get('drb', 0),

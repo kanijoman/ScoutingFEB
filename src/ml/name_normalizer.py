@@ -1,10 +1,10 @@
 """
-Módulo para normalización y matching de nombres de jugadores.
+Module for player name normalization and matching.
 
-Gestiona las inconsistencias en nombres de jugadores entre diferentes formatos:
-- "J. PÉREZ" (inicial + apellidos)
-- "JUAN PÉREZ" (nombre + apellidos) 
-- "PÉREZ, JUAN" (apellidos, nombre)
+Handles inconsistencies in player names across different formats:
+- "J. PÉREZ" (initial + surnames)
+- "JUAN PÉREZ" (given name + surnames) 
+- "PÉREZ, JUAN" (surnames, given name)
 """
 
 import re
@@ -13,101 +13,101 @@ import unicodedata
 
 
 class NameNormalizer:
-    """Normaliza y compara nombres de jugadores."""
+    """Normalizes and compares player names."""
     
-    # Palabras comunes a ignorar en apellidos compuestos
+    # Common particles to ignore in compound surnames
     PARTICLES = {'de', 'del', 'la', 'los', 'las', 'da', 'dos', 'das', 'van', 'von', 'el'}
     
     def __init__(self):
-        """Inicializar el normalizador."""
+        """Initialize the name normalizer."""
         pass
     
     def normalize_name(self, name: str) -> str:
         """
-        Normaliza un nombre para comparación.
+        Normalizes a name for comparison.
         
-        Proceso:
-        1. Convierte a mayúsculas
-        2. Elimina acentos
-        3. Elimina caracteres especiales
-        4. Normaliza espacios
+        Process:
+        1. Converts to uppercase
+        2. Removes accents
+        3. Removes special characters
+        4. Normalizes spaces
         
         Args:
-            name: Nombre original
+            name: Original name
             
         Returns:
-            Nombre normalizado
+            Normalized name
         """
         if not name:
             return ""
         
-        # Convertir a mayúsculas
+        # Convert to uppercase
         name = name.upper().strip()
         
-        # Eliminar acentos
+        # Remove accents
         name = self._remove_accents(name)
         
-        # Eliminar caracteres especiales excepto espacios, puntos y comas
+        # Remove special characters except spaces, periods and commas
         name = re.sub(r'[^A-Z0-9\s\.,\-]', '', name)
         
-        # Normalizar espacios múltiples
+        # Normalize multiple spaces
         name = re.sub(r'\s+', ' ', name)
         
         return name.strip()
     
     def _remove_accents(self, text: str) -> str:
         """
-        Elimina acentos y diacríticos.
+        Removes accents and diacritics.
         
         Args:
-            text: Texto con acentos
+            text: Text with accents
             
         Returns:
-            Texto sin acentos
+            Text without accents
         """
-        # Descomponer caracteres Unicode
+        # Decompose Unicode characters
         nfd = unicodedata.normalize('NFD', text)
-        # Filtrar marcas diacríticas
+        # Filter diacritic marks
         return ''.join(char for char in nfd if unicodedata.category(char) != 'Mn')
     
     def parse_name_components(self, name: str) -> Tuple[str, str, str]:
         """
-        Extrae componentes del nombre: iniciales, primer nombre, apellidos.
+        Extracts name components: initials, first name, surnames.
         
-        Detecta y procesa formatos:
+        Detects and processes formats:
         - "J. PÉREZ" -> ("J", "", "PEREZ")
         - "JUAN PÉREZ" -> ("J", "JUAN", "PEREZ")
         - "PÉREZ, JUAN" -> ("J", "JUAN", "PEREZ")
         - "JUAN MANUEL PÉREZ GARCÍA" -> ("J", "JUAN", "PEREZ GARCIA")
         
         Args:
-            name: Nombre completo
+            name: Full name
             
         Returns:
-            Tupla (inicial_primer_nombre, primer_nombre_completo, apellidos)
+            Tuple (first_name_initial, full_first_name, surnames)
         """
         name = self.normalize_name(name)
         
         if not name:
             return ("", "", "")
         
-        # Formato: "APELLIDOS, NOMBRE"
+        # Format: "SURNAMES, NAME"
         if ',' in name:
             parts = name.split(',', 1)
             surnames = parts[0].strip()
             given_names = parts[1].strip() if len(parts) > 1 else ""
             
-            # Extraer primer nombre
+            # Extract first name
             first_name = given_names.split()[0] if given_names else ""
             initial = first_name[0] if first_name else ""
             
             return (initial, first_name, surnames)
         
-        # Formato con punto: "J. PÉREZ" o "J.M. PÉREZ"
+        # Format with period: "J. PÉREZ" or "J.M. PÉREZ"
         if '.' in name:
             parts = name.split()
             
-            # Buscar dónde terminan las iniciales
+            # Find where initials end
             initials_end = 0
             for i, part in enumerate(parts):
                 if '.' in part:
@@ -115,87 +115,87 @@ class NameNormalizer:
                 else:
                     break
             
-            # Primera inicial
+            # First initial
             initial = parts[0][0] if parts else ""
             
-            # Apellidos son el resto
+            # Surnames are the rest
             surnames = ' '.join(parts[initials_end:]) if initials_end < len(parts) else ""
             
             return (initial, "", surnames)
         
-        # Formato: "NOMBRE APELLIDOS"
+        # Format: "NAME SURNAMES"
         parts = name.split()
         
         if len(parts) == 1:
-            # Solo un componente - asumimos que es apellido
+            # Only one component - assume it's a surname
             return ("", "", parts[0])
         
-        # Asumimos que el primer token es el nombre
+        # Assume first token is the given name
         first_name = parts[0]
         initial = first_name[0] if first_name else ""
         
-        # El resto son apellidos (pueden ser múltiples)
+        # Rest are surnames (can be multiple)
         surnames = ' '.join(parts[1:])
         
         return (initial, first_name, surnames)
     
     def get_surname_tokens(self, surnames: str) -> List[str]:
         """
-        Extrae tokens significativos de apellidos.
+        Extracts significant surname tokens.
         
-        Ignora partículas comunes como "de", "del", "la", etc.
+        Ignores common particles like "de", "del", "la", etc.
         
         Args:
-            surnames: Apellidos completos
+            surnames: Full surnames
             
         Returns:
-            Lista de tokens significativos
+            List of significant tokens
         """
         if not surnames:
             return []
         
         tokens = surnames.lower().split()
         
-        # Filtrar partículas
+        # Filter particles
         significant = [t for t in tokens if t not in self.PARTICLES]
         
         return [t.upper() for t in significant]
     
     def calculate_name_similarity(self, name1: str, name2: str) -> float:
         """
-        Calcula similitud entre dos nombres (0.0 - 1.0).
+        Calculates similarity between two names (0.0 - 1.0).
         
-        Estrategia:
-        1. Si los apellidos coinciden exactamente -> alta similitud
-        2. Si los apellidos tienen tokens en común -> similitud media
-        3. Si las iniciales coinciden -> bonus
-        4. Si el nombre completo coincide -> bonus adicional
+        Strategy:
+        1. If surnames match exactly -> high similarity
+        2. If surnames have tokens in common -> medium similarity
+        3. If initials match -> bonus
+        4. If full name matches -> additional bonus
         
         Args:
-            name1: Primer nombre
-            name2: Segundo nombre
+            name1: First name
+            name2: Second name
             
         Returns:
-            Score de similitud (0.0 = totalmente diferentes, 1.0 = idénticos)
+            Similarity score (0.0 = completely different, 1.0 = identical)
         """
-        # Parsear componentes
+        # Parse components
         init1, fname1, sname1 = self.parse_name_components(name1)
         init2, fname2, sname2 = self.parse_name_components(name2)
         
         similarity_score = 0.0
         
-        # 1. Comparar apellidos (peso 60%)
+        # 1. Compare surnames (60% weight)
         if sname1 and sname2:
-            # Coincidencia exacta de apellidos
+            # Exact surname match
             if sname1 == sname2:
                 similarity_score += 0.60
             else:
-                # Comparar tokens de apellidos
+                # Compare surname tokens
                 tokens1 = set(self.get_surname_tokens(sname1))
                 tokens2 = set(self.get_surname_tokens(sname2))
                 
                 if tokens1 and tokens2:
-                    # Jaccard similarity de tokens
+                    # Jaccard similarity of tokens
                     intersection = tokens1.intersection(tokens2)
                     union = tokens1.union(tokens2)
                     
@@ -203,34 +203,34 @@ class NameNormalizer:
                         jaccard = len(intersection) / len(union)
                         similarity_score += 0.60 * jaccard
         
-        # 2. Comparar iniciales (peso 20%)
+        # 2. Compare initials (20% weight)
         if init1 and init2:
             if init1 == init2:
                 similarity_score += 0.20
         
-        # 3. Comparar nombres completos si están disponibles (peso 20%)
+        # 3. Compare full names if available (20% weight)
         if fname1 and fname2:
             if fname1 == fname2:
                 similarity_score += 0.20
-            # Coincidencia parcial (uno es substring del otro)
+            # Partial match (one is substring of the other)
             elif fname1 in fname2 or fname2 in fname1:
                 similarity_score += 0.10
         elif init1 and init2 and init1 == init2:
-            # Solo tenemos iniciales y coinciden
+            # Only have initials and they match
             similarity_score += 0.10
         
         return min(1.0, similarity_score)
     
     def calculate_levenshtein_distance(self, s1: str, s2: str) -> int:
         """
-        Calcula distancia de Levenshtein entre dos strings.
+        Calculates Levenshtein distance between two strings.
         
         Args:
-            s1: Primer string
-            s2: Segundo string
+            s1: First string
+            s2: Second string
             
         Returns:
-            Distancia de edición
+            Edit distance
         """
         if len(s1) < len(s2):
             return self.calculate_levenshtein_distance(s2, s1)
@@ -243,7 +243,7 @@ class NameNormalizer:
         for i, c1 in enumerate(s1):
             current_row = [i + 1]
             for j, c2 in enumerate(s2):
-                # Coste de inserción, eliminación, sustitución
+                # Cost of insertion, deletion, substitution
                 insertions = previous_row[j + 1] + 1
                 deletions = current_row[j] + 1
                 substitutions = previous_row[j] + (c1 != c2)
@@ -254,14 +254,14 @@ class NameNormalizer:
     
     def fuzzy_match_score(self, name1: str, name2: str) -> float:
         """
-        Score de matching difuso usando Levenshtein.
+        Fuzzy matching score using Levenshtein distance.
         
         Args:
-            name1: Primer nombre
-            name2: Segundo nombre
+            name1: First name
+            name2: Second name
             
         Returns:
-            Score normalizado (0.0 - 1.0)
+            Normalized score (0.0 - 1.0)
         """
         norm1 = self.normalize_name(name1)
         norm2 = self.normalize_name(name2)
@@ -275,12 +275,12 @@ class NameNormalizer:
         if max_len == 0:
             return 0.0
         
-        # Normalizar: 1.0 = idénticos, 0.0 = completamente diferentes
+        # Normalize: 1.0 = identical, 0.0 = completely different
         return 1.0 - (distance / max_len)
 
 
 def test_name_normalizer():
-    """Función de prueba para el normalizador."""
+    """Test function for the name normalizer."""
     normalizer = NameNormalizer()
     
     test_cases = [

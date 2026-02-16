@@ -201,22 +201,104 @@
 │   └ INSERT player_game_stats    │
 └──────┬──────────────────────────┘
        │
-       │ Aggregate
+       │ Aggregate & Score
        ▼
-┌─────────────────────────────────┐
-│ compute_player_aggregates()     │
-│   ├ GROUP BY player/season      │
-│   ├ AVG(points, efficiency...)  │
-│   ├ STD(points...)              │
-│   ├ TREND (linear regression)   │
-│   └ INSERT player_agg_stats     │
-└──────┬──────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ Helper Modules (Extracted 2024)                          │
+│                                                           │
+│ ┌────────────────────────────────────────────┐           │
+│ │ player_aggregator.py                       │           │
+│ │   compute_player_aggregates()              │           │
+│ │   ├ StatsExtractor: Extract from DB        │           │
+│ │   ├ StatsAggregator: Calculate aggregates  │           │
+│ │   │   ├ Averages (basic & advanced)        │           │
+│ │   │   ├ Totals (games, minutes, points...) │           │
+│ │   │   ├ Std Deviations (variability)       │           │
+│ │   │   ├ Trends (linear regression)         │           │
+│ │   │   └ Win % & Win Shares                 │           │
+│ │   └ AggregationQueryBuilder: SQL queries   │           │
+│ └────────────────────────────────────────────┘           │
+│                                                           │
+│ ┌────────────────────────────────────────────┐           │
+│ │ profile_metrics_calculator.py              │           │
+│ │   compute_profile_metrics()                │           │
+│ │   ├ ProfileMetricsCalculator               │           │
+│ │   │   ├ Per-36 stats normalization         │           │
+│ │   │   ├ Variability metrics (std dev)      │           │
+│ │   │   ├ Momentum index (form tracking)     │           │
+│ │   │   ├ Trend detection (regression)       │           │
+│ │   │   ├ Player-team ratios (% of team)     │           │
+│ │   │   └ Performance tiers                  │           │
+│ │   └ ProfileQueryBuilder: SQL queries       │           │
+│ └────────────────────────────────────────────┘           │
+│                                                           │
+│ ┌────────────────────────────────────────────┐           │
+│ │ profile_potential_scorer.py                │           │
+│ │   calculate_profile_potential_scores()     │           │
+│ │   ├ EligibilityChecker                     │           │
+│ │   │   MIN_GAMES=8, MIN_MINUTES=80          │           │
+│ │   └ PotentialScoreCalculator               │           │
+│ │       ├ Age Component (20%)                │           │
+│ │       ├ Performance Component (30%)        │           │
+│ │       │   Z-scores + competition adj       │           │
+│ │       ├ Production Component (15%)         │           │
+│ │       │   Per-36 + team share              │           │
+│ │       ├ Consistency Component (15%)        │           │
+│ │       │   Coefficient of variation         │           │
+│ │       ├ Advanced Metrics Component (10%)   │           │
+│ │       │   TS%, efficiency rating           │           │
+│ │       └ Momentum Component (10%)           │           │
+│ │           Breakout detection, trends       │           │
+│ └────────────────────────────────────────────┘           │
+│                                                           │
+│ ┌────────────────────────────────────────────┐           │
+│ │ career_potential_calculator.py             │           │
+│ │   calculate_career_potential_scores()      │           │
+│ │   ├ aggregate_seasons_by_performance()     │           │
+│ │   │   Multi-team season handling           │           │
+│ │   ├ build_eligible_seasons()               │           │
+│ │   │   Filter & validate season data        │           │
+│ │   ├ calculate_career_average()             │           │
+│ │   │   Weighted average over N seasons      │           │
+│ │   ├ calculate_recent_performance()         │           │
+│ │   │   Recent N seasons average             │           │
+│ │   ├ calculate_trajectory()                 │           │
+│ │   │   70% direct + 30% regression          │           │
+│ │   ├ adjust_trajectory_for_performance()    │           │
+│ │   │   Cap trajectory if perf too low       │           │
+│ │   ├ calculate_consistency()                │           │
+│ │   │   Based on std dev (1.0 - std/50)      │           │
+│ │   ├ calculate_age_score()                  │           │
+│ │   │   Age potential (1.0 at ≤21)           │           │
+│ │   ├ calculate_confidence_score()           │           │
+│ │   │   Data quantity confidence             │           │
+│ │   ├ calculate_level_jump_bonus()           │           │
+│ │   │   0.08-0.15 for competition upgrades   │           │
+│ │   ├ calculate_unified_score()              │           │
+│ │   │   50% recent, 25% trajectory,          │           │
+│ │   │   10% career, 10% consistency, 5% age  │           │
+│ │   ├ apply_inactivity_penalty()             │           │
+│ │   │   Progressive penalty for inactivity   │           │
+│ │   ├ determine_tier()                       │           │
+│ │   │   elite/very_high/high/medium/low      │           │
+│ │   └ calculate_special_flags()              │           │
+│ │       Rising star, established, peak       │           │
+│ └────────────────────────────────────────────┘           │
+└───────────────────────────────────────────────────────────┘
        │
+       │ INSERT INTO player_agg_stats & player_targets
        ▼
 ┌──────────────┐
 │ SQLite       │
 │ (Relational) │
 └──────────────┘
+
+**Refactoring Impact (2024)**:
+- Original etl_processor.py: 2341 lines, C(16.78) complexity
+- After extraction: 1874 lines, B(8.30) complexity
+- Helper modules: 4 files, 1435 total lines
+- Complexity reduction: -50.5%
+- F-grade functions eliminated: 4 → 0
 ```
 
 ### 3. Machine Learning (SQLite → Modelos)

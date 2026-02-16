@@ -19,8 +19,12 @@ from PyQt6.QtGui import QFont, QColor, QPalette, QPainter
 from PyQt6.QtCharts import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
 
 # Agregar src al path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-sys.path.insert(0, str(Path(__file__).parent.parent))
+PROJECT_ROOT = Path(__file__).parent.parent.absolute()
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Default database path
+DEFAULT_DB_PATH = PROJECT_ROOT / "scouting_feb.db"
 
 from evaluate_team import TeamEvaluator, train_models_if_needed
 
@@ -47,11 +51,12 @@ class ModelTrainingThread(QThread):
 class TeamEvaluationWidget(QWidget):
     """Widget principal para evaluación de equipos."""
     
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, show_errors: bool = True):
         super().__init__()
-        self.db_path = db_path or str(Path(__file__).parent.parent / "scouting_feb.db")
+        self.db_path = db_path or str(DEFAULT_DB_PATH)
         self.evaluator: Optional[TeamEvaluator] = None
         self.current_roster = []
+        self.show_errors = show_errors  # Flag para controlar si se muestran modales de error
         
         self.init_ui()
         self.load_evaluator()
@@ -174,23 +179,31 @@ class TeamEvaluationWidget(QWidget):
             # Verificar si modelos existen
             models_path = Path("models")
             if not (models_path / "points_predictor.joblib").exists():
-                reply = QMessageBox.question(
-                    self,
-                    "Modelos no encontrados",
-                    "Los modelos de predicción no existen. ¿Deseas entrenarlos ahora?\n\n"
-                    "Esto tomará 1-2 minutos.",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-                
-                if reply == QMessageBox.StandardButton.Yes:
-                    self.train_models()
+                if self.show_errors:
+                    reply = QMessageBox.question(
+                        self,
+                        "Modelos no encontrados",
+                        "Los modelos de predicción no existen. ¿Deseas entrenarlos ahora?\n\n"
+                        "Esto tomará 1-2 minutos.",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.train_models()
+                        return
+                else:
+                    # En modo test, simplemente retornar sin cargar
                     return
             
             self.evaluator = TeamEvaluator(self.db_path)
             self.load_competitions()
             
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Error al cargar evaluador: {str(e)}")
+            if self.show_errors:
+                QMessageBox.critical(self, "Error", f"Error al cargar evaluador: {str(e)}")
+            else:
+                # En modo test, re-lanzar la excepción para que el test la capture
+                raise
     
     def train_models(self):
         """Entrenar modelos en background."""

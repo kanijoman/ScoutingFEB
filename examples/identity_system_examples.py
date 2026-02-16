@@ -52,7 +52,10 @@ def ejemplo_1_normalizacion_nombres():
         print()
 
 
-def ejemplo_2_buscar_candidatos(db_path: str = "scouting_feb.db"):
+def ejemplo_2_buscar_candidatos(db_path: str = None):
+    """Ejemplo 2: Búsqueda de candidatos para identidad."""
+    if db_path is None:
+        db_path = str(Path(__file__).parent.parent.absolute() / "scouting_feb.db")
     """Ejemplo 2: Buscar candidatos de matching para un perfil."""
     print("=" * 80)
     print("EJEMPLO 2: Búsqueda de Candidatos")
@@ -108,8 +111,11 @@ def ejemplo_2_buscar_candidatos(db_path: str = "scouting_feb.db"):
         print(f"Ejecutar primero: python src/ml/etl_processor.py\n")
 
 
-def ejemplo_3_estadisticas_sistema(db_path: str = "scouting_feb.db"):
+def ejemplo_3_estadisticas_sistema(db_path: str = None):
     """Ejemplo 3: Estadísticas del sistema."""
+    if db_path is None:
+        db_path = str(Path(__file__).parent.parent.absolute() / "scouting_feb.db")
+    
     print("=" * 80)
     print("EJEMPLO 3: Estadísticas del Sistema")
     print("=" * 80)
@@ -179,8 +185,11 @@ def ejemplo_3_estadisticas_sistema(db_path: str = "scouting_feb.db"):
         print(f"Ejecutar primero: python src/ml/etl_processor.py\n")
 
 
-def ejemplo_4_consultas_scouting(db_path: str = "scouting_feb.db"):
+def ejemplo_4_consultas_scouting(db_path: str = None):
     """Ejemplo 4: Consultas típicas de scouting."""
+    if db_path is None:
+        db_path = str(Path(__file__).parent.parent.absolute() / "scouting_feb.db")
+    
     print("=" * 80)
     print("EJEMPLO 4: Consultas de Scouting")
     print("=" * 80)

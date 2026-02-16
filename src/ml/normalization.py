@@ -1,12 +1,12 @@
 """
-Funciones de normalización para comparar jugadores entre épocas y ligas.
+Normalization functions to compare players across eras and leagues.
 
-Implementa Z-Score normalization basada en el contexto (nivel de competición + temporada)
-para hacer comparables las estadísticas de jugadores de diferentes épocas y ligas.
+Implements Z-Score normalization based on context (competition level + season)
+to make player statistics comparable across different eras and leagues.
 
-Referencias:
-- Z-Score: Medida de cuántas desviaciones estándar está un valor de la media
-- Contexto: Grupo definido por (competition_level, season)
+References:
+- Z-Score: Measure of how many standard deviations a value is from the mean
+- Context: Group defined by (competition_level, season)
 """
 
 import sqlite3
@@ -20,24 +20,24 @@ logger = logging.getLogger(__name__)
 
 class ZScoreNormalizer:
     """
-    Calcula Z-Scores para normalizar estadísticas de jugadores.
+    Calculates Z-Scores to normalize player statistics.
     
-    El Z-Score permite comparar jugadores de diferentes épocas y ligas:
-    - Z = 0: Rendimiento promedio en su contexto
-    - Z = +1: Una desviación estándar por encima (mejor que ~84%)
-    - Z = +2: Dos desviaciones estándar por encima (élite, mejor que ~97%)
-    - Z = -1: Por debajo del promedio
+    Z-Score allows comparing players from different eras and leagues:
+    - Z = 0: Average performance in their context
+    - Z = +1: One standard deviation above (better than ~84%)
+    - Z = +2: Two standard deviations above (elite, better than ~97%)
+    - Z = -1: Below average
     
-    Ejemplo:
-        Jugador A (2010, EBA): 14 pts → Z = +2.5 (dominante)
-        Jugador B (2023, EBA): 11 pts → Z = +1.9 (muy bueno)
-        → Son comparables a pesar de épocas diferentes
+    Example:
+        Player A (2010, EBA): 14 pts → Z = +2.5 (dominant)
+        Player B (2023, EBA): 11 pts → Z = +1.9 (very good)
+        → Comparable despite different eras
     """
     
     def __init__(self, db_path: str):
         """
         Args:
-            db_path: Ruta a la base de datos SQLite
+            db_path: Path to the SQLite database
         """
         self.db_path = db_path
         self.context_stats_cache: Dict[Tuple[int, str], Dict[str, Tuple[float, float]]] = {}
@@ -49,15 +49,15 @@ class ZScoreNormalizer:
         metrics: List[str] = None
     ) -> Dict[str, Tuple[float, float]]:
         """
-        Calcula media y desviación estándar para un contexto (nivel + temporada).
+        Calculates mean and standard deviation for a context (level + season).
         
         Args:
-            competition_level: Nivel de la competición (1=máximo, 2, 3...)
-            season: Temporada (ej: "2023-2024")
-            metrics: Lista de métricas a calcular (default: puntos, eficiencia, rebotes, asistencias)
+            competition_level: Competition level (1=highest, 2, 3...)
+            season: Season (e.g., "2023-2024")
+            metrics: List of metrics to calculate (default: points, efficiency, rebounds, assists)
         
         Returns:
-            Dict con {metric: (mean, std_dev)} para cada métrica
+            Dict with {metric: (mean, std_dev)} for each metric
         """
         if metrics is None:
             metrics = [
@@ -94,7 +94,7 @@ class ZScoreNormalizer:
                 WHERE cl.competition_level = ?
                     AND g.season = ?
                     AND {metric} IS NOT NULL
-                    AND pgs.minutes_played >= 10  -- Solo jugadores con minutos significativos
+                    AND pgs.minutes_played >= 10  -- Only players with significant minutes
                 """
                 
                 cursor.execute(query, (competition_level, season))
@@ -105,19 +105,19 @@ class ZScoreNormalizer:
                     
                     if sample_size < 30:
                         logger.warning(
-                            f"Muestra pequeña para {metric} en nivel={competition_level}, "
-                            f"temporada={season}: n={sample_size}"
+                            f"Small sample for {metric} at level={competition_level}, "
+                            f"season={season}: n={sample_size}"
                         )
                     
                     context_stats[metric] = (mean, std_dev)
                 else:
                     logger.warning(
-                        f"No hay datos suficientes para {metric} en nivel={competition_level}, "
-                        f"temporada={season}"
+                        f"Insufficient data for {metric} at level={competition_level}, "
+                        f"season={season}"
                     )
                     context_stats[metric] = (0.0, 1.0)  # Fallback
         
-        # Guardar en caché
+        # Save to cache
         self.context_stats_cache[cache_key] = context_stats
         return context_stats
     
@@ -128,20 +128,20 @@ class ZScoreNormalizer:
         std_dev: float
     ) -> Optional[float]:
         """
-        Calcula el Z-Score de un valor.
+        Calculates the Z-Score of a value.
         
-        Z = (valor - media) / desviación_estándar
+        Z = (value - mean) / standard_deviation
         
         Args:
-            value: Valor a normalizar
-            mean: Media del contexto
-            std_dev: Desviación estándar del contexto
+            value: Value to normalize
+            mean: Context mean
+            std_dev: Context standard deviation
         
         Returns:
-            Z-Score o None si no se puede calcular
+            Z-Score or None if cannot calculate
         """
         if std_dev == 0 or std_dev is None:
-            logger.warning(f"Desviación estándar = 0, no se puede calcular Z-Score")
+            logger.warning(f"Standard deviation = 0, cannot calculate Z-Score")
             return None
         
         if value is None or mean is None:
@@ -156,20 +156,20 @@ class ZScoreNormalizer:
         season: str
     ) -> Dict[str, float]:
         """
-        Calcula Z-Scores para las estadísticas de un jugador en un partido.
+        Calculates Z-Scores for player statistics in a game.
         
         Args:
-            stat_id: ID de player_game_stats
-            competition_level: Nivel de competición
-            season: Temporada
+            stat_id: player_game_stats ID
+            competition_level: Competition level
+            season: Season
         
         Returns:
-            Dict con Z-Scores calculados
+            Dict with calculated Z-Scores
         """
-        # Obtener estadísticas del contexto
+        # Get context statistics
         context_stats = self.calculate_context_statistics(competition_level, season)
         
-        # Obtener valores del jugador
+        # Get player values
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -185,14 +185,14 @@ class ZScoreNormalizer:
             
             row = cursor.fetchone()
             if not row:
-                logger.error(f"No se encontró stat_id={stat_id}")
+                logger.error(f"stat_id={stat_id} not found")
                 return {}
             
             (points, efficiency, rebounds, assists,
              ts_pct, efg_pct, oer, per, tov_pct,
              orb_pct, drb_pct, ftr, usage, ws, ws_36) = row
         
-        # Calcular Z-Scores
+        # Calculate Z-Scores
         z_scores = {}
         
         if 'points' in context_stats:
@@ -211,7 +211,7 @@ class ZScoreNormalizer:
             mean, std = context_stats['assists']
             z_scores['z_assists'] = self.calculate_zscore(assists, mean, std)
         
-        # Métricas avanzadas
+        # Advanced metrics
         if 'offensive_rating' in context_stats and oer is not None:
             mean, std = context_stats['offensive_rating']
             z_scores['z_offensive_rating'] = self.calculate_zscore(oer, mean, std)
@@ -240,30 +240,30 @@ class ZScoreNormalizer:
     
     def calculate_percentile(self, z_score: float) -> int:
         """
-        Convierte Z-Score a percentil (0-100).
+        Converts Z-Score to percentile (0-100).
         
-        Usa la función de distribución acumulativa normal.
+        Uses the normal cumulative distribution function.
         
         Args:
-            z_score: Z-Score calculado
+            z_score: Calculated Z-Score
         
         Returns:
-            Percentil entre 0 y 100
+            Percentile between 0 and 100
         """
         if z_score is None:
-            return 50  # Promedio por defecto
+            return 50  # Average by default
         
-        # Aproximación de la CDF normal usando erf
+        # Normal CDF approximation using erf
         # CDF(z) = 0.5 * (1 + erf(z / sqrt(2)))
         percentile = 0.5 * (1 + math.erf(z_score / math.sqrt(2)))
         return int(percentile * 100)
     
     def calculate_performance_tier(self, percentile: int) -> str:
         """
-        Clasifica el rendimiento basado en percentil.
+        Classifies performance based on percentile.
         
         Args:
-            percentile: Percentil (0-100)
+            percentile: Percentile (0-100)
         
         Returns:
             Tier: 'elite', 'very_good', 'above_average', 'average', 'below_average'
@@ -281,18 +281,18 @@ class ZScoreNormalizer:
     
     def update_game_stats_zscores(self, competition_level: int, season: str) -> int:
         """
-        Actualiza los Z-Scores de todos los partidos en un contexto.
+        Updates Z-Scores for all games in a context.
         
         Args:
-            competition_level: Nivel de competición
-            season: Temporada
+            competition_level: Competition level
+            season: Season
         
         Returns:
-            Número de registros actualizados
+            Number of updated records
         """
-        logger.info(f"Calculando Z-Scores para nivel={competition_level}, temporada={season}")
+        logger.info(f"Calculating Z-Scores for level={competition_level}, season={season}")
         
-        # Calcular estadísticas del contexto
+        # Calculate context statistics
         context_stats = self.calculate_context_statistics(competition_level, season)
         
         updated_count = 0
@@ -300,7 +300,7 @@ class ZScoreNormalizer:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Obtener todos los stat_ids del contexto
+            # Get all stat_ids from context
             cursor.execute("""
                 SELECT 
                     pgs.stat_id, pgs.points, pgs.efficiency_rating,
@@ -323,7 +323,7 @@ class ZScoreNormalizer:
                 (stat_id, points, efficiency, rebounds, assists,
                  ts_pct, efg_pct, oer, per, tov_pct, usage, ws_36) = row
                 
-                # Calcular Z-Scores básicos
+                # Calculate basic Z-Scores
                 z_points = None
                 z_efficiency = None
                 z_rebounds = None
@@ -345,7 +345,7 @@ class ZScoreNormalizer:
                     mean, std = context_stats['assists']
                     z_assists = self.calculate_zscore(assists, mean, std)
                 
-                # Calcular Z-Scores de métricas avanzadas
+                # Calculate Z-Scores for advanced metrics
                 z_oer = None
                 z_ts_pct = None
                 z_per = None
@@ -377,9 +377,9 @@ class ZScoreNormalizer:
                     mean, std = context_stats['win_shares_per_36']
                     z_ws_36 = self.calculate_zscore(ws_36, mean, std)
                 
-                # Actualizar en base de datos
-                # NOTA: Solo actualizamos z-scores de métricas avanzadas que existen en el esquema
-                # Las métricas básicas (points, efficiency, rebounds, assists) no tienen columnas z-score
+                # Update in database
+                # NOTE: Only updating z-scores for advanced metrics that exist in schema
+                # Basic metrics (points, efficiency, rebounds, assists) don't have z-score columns
                 cursor.execute("""
                     UPDATE player_game_stats
                     SET z_offensive_rating = ?,
@@ -395,24 +395,24 @@ class ZScoreNormalizer:
             
             conn.commit()
         
-        logger.info(f"Z-Scores actualizados: {updated_count} registros")
+        logger.info(f"Z-Scores updated: {updated_count} records")
         return updated_count
     
     def update_aggregated_stats_normalized(self, player_id: int, season: str) -> bool:
         """
-        Actualiza Z-Scores y percentiles en player_aggregated_stats.
+        Updates Z-Scores and percentiles in player_aggregated_stats.
         
         Args:
-            player_id: ID del jugador
-            season: Temporada
+            player_id: Player ID
+            season: Season
         
         Returns:
-            True si se actualizó correctamente
+            True if updated successfully
         """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             
-            # Obtener estadísticas agregadas del jugador
+            # Get player's aggregated statistics
             cursor.execute("""
                 SELECT 
                     pas.agg_id,
@@ -431,12 +431,12 @@ class ZScoreNormalizer:
             
             row = cursor.fetchone()
             if not row:
-                logger.warning(f"No hay stats agregadas para player_id={player_id}, season={season}")
+                logger.warning(f"No aggregated stats for player_id={player_id}, season={season}")
                 return False
             
             agg_id, avg_points, avg_efficiency, avg_rebounds, avg_assists, comp_level = row
             
-            # Calcular Z-Scores
+            # Calculate Z-Scores
             context_stats = self.calculate_context_statistics(comp_level, season)
             
             z_avg_points = None
@@ -460,24 +460,24 @@ class ZScoreNormalizer:
                 mean, std = context_stats['assists']
                 z_avg_assists = self.calculate_zscore(avg_assists, mean, std)
             
-            # Calcular percentiles (usar eficiencia como métrica principal)
+            # Calculate percentiles (use efficiency as main metric)
             percentile_efficiency = self.calculate_percentile(z_avg_efficiency) if z_avg_efficiency else 50
             percentile_points = self.calculate_percentile(z_avg_points) if z_avg_points else 50
             percentile_rebounds = self.calculate_percentile(z_avg_rebounds) if z_avg_rebounds else 50
             percentile_assists = self.calculate_percentile(z_avg_assists) if z_avg_assists else 50
             
-            # Clasificar rendimiento
+            # Classify performance
             performance_tier = self.calculate_performance_tier(percentile_efficiency)
             
-            # NOTA: Las columnas z_avg_points, z_avg_efficiency, etc. no existen en el esquema actual
-            # Solo actualizamos las que están disponibles: performance_tier y percentiles de métricas avanzadas
-            # Las métricas básicas no se normalizan en esta tabla (se normalizan a nivel de partido)
+            # NOTE: Columns z_avg_points, z_avg_efficiency, etc. don't exist in current schema
+            # Only updating available columns: performance_tier and advanced metric percentiles
+            # Basic metrics are not normalized in this table (they are normalized at game level)
             
-            # No hacer nada por ahora - las columnas no existen en el esquema
-            # Si se necesita, agregar las columnas al esquema o usar otra tabla
+            # Do nothing for now - columns don't exist in schema
+            # If needed, add columns to schema or use another table
             z_points_str = f"{z_avg_points:.2f}" if z_avg_points else 'N/A'
             z_eff_str = f"{z_avg_efficiency:.2f}" if z_avg_efficiency else 'N/A'
-            logger.debug(f"Stats normalizadas calculadas para player {player_id}: "
+            logger.debug(f"Normalized stats calculated for player {player_id}: "
                         f"z_points={z_points_str}, z_eff={z_eff_str}")
             
             conn.commit()
@@ -487,26 +487,26 @@ class ZScoreNormalizer:
 
 def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] = None):
     """
-    Inicializa la tabla competition_levels con configuración por defecto.
+    Initializes competition_levels table with default configuration.
     
     Args:
-        db_path: Ruta a la base de datos SQLite
-        default_levels: Dict con {competition_name: level} por defecto
+        db_path: Path to the SQLite database
+        default_levels: Dict with {competition_name: level} by default
     """
     if default_levels is None:
-        # Configuración por defecto para competiciones FEB
-        # IMPORTANTE: Los nombres deben coincidir EXACTAMENTE con los de la base de datos
+        # Default configuration for FEB competitions
+        # IMPORTANT: Names must match EXACTLY with those in the database
         default_levels = {
-            # Masculino
+            # Men's
             'ACB': 1,
             'LEB ORO': 2,
             'LEB PLATA': 3,
             'EBA': 4,
-            # Femenino (nombres reales en la BD)
-            'LF ENDESA': 1,  # Primera división - máximo nivel
-            'LF CHALLENGE': 2,  # Segunda división (desde 2021/22)
-            'L.F.-2': 2,  # Segunda división hasta 2020/21, luego nivel 3
-            # Nombres alternativos
+            # Women's (actual names in DB)
+            'LF ENDESA': 1,  # First division - highest level
+            'LF CHALLENGE': 2,  # Second division (since 2021/22)
+            'L.F.-2': 2,  # Second division until 2020/21, then level 3
+            # Alternative names
             'LIGA FEMENINA': 1,
             'LIGA FEMENINA 2': 2,
             'LIGA CHALLENGE': 2,
@@ -516,7 +516,7 @@ def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] =
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
         
-        # Obtener todas las competiciones y temporadas
+        # Get all competitions and seasons
         cursor.execute("""
             SELECT DISTINCT c.competition_id, c.competition_name, g.season
             FROM competitions c
@@ -527,52 +527,52 @@ def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] =
         rows = cursor.fetchall()
         
         for comp_id, comp_name, season in rows:
-            # Buscar nivel por defecto (case-insensitive)
+            # Find default level (case-insensitive)
             level = None
             weight = 1.0
             notes = None
             
-            # Buscar por nombre exacto (mayúsculas)
+            # Search by exact name (uppercase)
             for key, val in default_levels.items():
                 if comp_name.upper() == key.upper():
                     level = val
                     break
             
-            # Si no encontró, usar nivel 4 por defecto
+            # If not found, use level 4 by default
             if level is None:
                 level = 4
             
-            # REGLA ESPECIAL: L.F.-2 cambió de nivel 2 a 3 en temporada 2021/2022
+            # SPECIAL RULE: L.F.-2 changed from level 2 to 3 in season 2021/2022
             if comp_name == 'L.F.-2':
-                # Parsear año de temporada (formato: "2001/2002")
+                # Parse season year (format: "2001/2002")
                 try:
                     season_year = int(season.split('/')[0])
                     if season_year >= 2021:
                         level = 3
                         weight = 1.0
-                        notes = 'Tercera división (después de reforma 2021/22)'
+                        notes = 'Third division (after 2021/22 reform)'
                     else:
                         level = 2
                         weight = 1.25
-                        notes = 'Segunda división (antes de reforma 2021/22)'
+                        notes = 'Second division (before 2021/22 reform)'
                 except (ValueError, IndexError):
-                    pass  # Mantener nivel por defecto
+                    pass  # Keep default level
             
-            # Asignar pesos y descripciones según nivel
+            # Assign weights and descriptions by level
             if level == 1:
                 weight = 1.5
-                level_desc = f'Nivel 1 - {comp_name} - Primera división'
+                level_desc = f'Level 1 - {comp_name} - First division'
             elif level == 2:
                 weight = 1.25
-                level_desc = f'Nivel 2 - {comp_name} - Segunda división'
+                level_desc = f'Level 2 - {comp_name} - Second division'
             elif level == 3:
                 weight = 1.0
-                level_desc = f'Nivel 3 - {comp_name} - Tercera división'
+                level_desc = f'Level 3 - {comp_name} - Third division'
             else:
                 weight = 1.0
-                level_desc = f'Nivel {level} - {comp_name}'
+                level_desc = f'Level {level} - {comp_name}'
             
-            # Insertar o ignorar si ya existe
+            # Insert or ignore if already exists
             cursor.execute("""
                 INSERT OR IGNORE INTO competition_levels 
                 (competition_id, season, competition_level, weight, level_description, notes)
@@ -581,19 +581,19 @@ def initialize_competition_levels(db_path: str, default_levels: Dict[str, int] =
         
         conn.commit()
     
-    logger.info(f"Inicializados niveles de competición para {len(rows)} entradas")
+    logger.info(f"Initialized competition levels for {len(rows)} entries")
 
 
-# Funciones auxiliares para uso directo
+# Auxiliary functions for direct use
 def calculate_zscore(value: float, mean: float, std_dev: float) -> Optional[float]:
-    """Calcula Z-Score: (valor - media) / desviación_estándar"""
+    """Calculates Z-Score: (value - mean) / standard_deviation"""
     if std_dev == 0 or std_dev is None or value is None or mean is None:
         return None
     return (value - mean) / std_dev
 
 
 def percentile_from_zscore(z_score: float) -> int:
-    """Convierte Z-Score a percentil (0-100)"""
+    """Converts Z-Score to percentile (0-100)"""
     if z_score is None:
         return 50
     percentile = 0.5 * (1 + math.erf(z_score / math.sqrt(2)))

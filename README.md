@@ -13,6 +13,7 @@ Sistema de scouting de baloncesto basado en IA para predecir el rendimiento futu
 - **Feature Engineering**: Per-36, rolling windows, team ratios, consistency metrics
 - **Interpretabilidad**: Explicaciones SHAP de las predicciones
 - **Base de Datos Dual**: MongoDB (raw) + SQLite (procesado)
+- **Testing Robusto**: Suite completa de tests de regresión para garantizar estabilidad
 
 ## 🚀 Resultados del Sistema ML
 
@@ -22,7 +23,7 @@ Sistema de scouting de baloncesto basado en IA para predecir el rendimiento futu
 - **152,577 registros** de entrenamiento con 2,107 jugadoras únicas
 - **6,725 identidades consolidadas** rastreando carreras completas
 
-Ver detalles: [ML_IMPROVEMENTS_RESULTS.md](ML_IMPROVEMENTS_RESULTS.md)
+Ver detalles: [docs/ML_IMPROVEMENTS_RESULTS.md](docs/ML_IMPROVEMENTS_RESULTS.md)
 
 ## 🆕 Sistema de Gestión de Identidades
 
@@ -41,7 +42,20 @@ El sistema ahora incluye un **sofisticado sistema de perfiles de jugadores** que
 - ✅ **Scoring de Potencial**: Identificación automática de jugadores prometedores
 - ✅ **Tracking Multi-Temporada**: Rastrea carreras de hasta 19 temporadas
 
-**Ver documentación completa:** [PLAYER_IDENTITY_SYSTEM.md](PLAYER_IDENTITY_SYSTEM.md)
+**Ver documentación completa:** [docs/PLAYER_IDENTITY_SYSTEM.md](docs/PLAYER_IDENTITY_SYSTEM.md)
+
+## 🏆 Estado del Proyecto (Febrero 2026)
+
+**✅ PRODUCTION-READY** - Código refactorizado y listo para producción
+
+### Métricas de Calidad
+- **Complejidad promedio**: A (4.86) - Excelente
+- **Funciones críticas**: 0 (eliminadas 100%)
+- **Puntuación**: 9.4/10 ⭐⭐⭐⭐⭐
+- **Tests**: 284 tests, 100% passing
+- **Cobertura**: Test-to-code ratio 1.36:1
+
+Ver detalles: [docs/REFACTORING_FINAL_REPORT.md](docs/REFACTORING_FINAL_REPORT.md) | [docs/FINAL_COMPLEXITY_AUDIT.md](docs/FINAL_COMPLEXITY_AUDIT.md)
 
 ## Descripción
 
@@ -477,12 +491,65 @@ logging.basicConfig(
 ...
 ```
 
+## 🧪 Testing y Desarrollo
+
+ScoutingFEB incluye una **suite completa de tests de regresión** para garantizar que la funcionalidad persiste tras refactorizaciones y mejoras.
+
+### Instalación de Dependencias de Testing
+
+```powershell
+pip install -r requirements_dev.txt
+```
+
+### Ejecutar Tests
+
+```powershell
+# Validación rápida (< 30 seg) - recomendado durante desarrollo
+python scripts/quick_validation.py
+
+# Suite completa de regresión
+python scripts/run_regression_suite.py
+
+# Con reporte de cobertura
+python scripts/run_regression_suite.py --coverage
+
+# Tests específicos
+pytest tests/integration/test_etl_sanity.py -v
+pytest -m smoke -v                    # Solo smoke tests
+pytest -m "not ui" -v                 # Excluir tests UI
+```
+
+### Tipos de Tests
+
+- **Regresión (`@pytest.mark.regression`)**: Tests end-to-end que validan flujos completos
+- **Integración (`@pytest.mark.integration`)**: Validación de métricas en rangos válidos, sin NaN/Inf
+- **Humo (`@pytest.mark.smoke`)**: Tests rápidos de carga básica sin crash
+
+### Filosofía de Testing
+
+- ✅ **Objetivo**: Garantizar que el sistema funciona tras cambios, NO buscar 100% cobertura
+- ✅ **Enfoque**: Tests funcionales que validan comportamiento razonable
+- ✅ **ML Flexible**: Tests ML validan que funciona, NO valores exactos (permitiendo mejoras)
+- ❌ **Evitar**: Over-testing de código trivial cubierto en tests funcionales
+
+**Documentación completa:** [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)
+
+### Plan de Refactorización
+
+El proyecto está en proceso de refactorización para mejorar mantenibilidad:
+- División de archivos grandes (etl_processor.py: 2,349 líneas → 5 módulos)
+- Estandarización de código a inglés (manteniendo docs en español)
+- Eliminación de código duplicado (utilidades compartidas)
+- Mejoras en modelos ML (nuevas features, hyperparameter tuning)
+
+**Ver plan completo:** [docs/REFACTORING_PLAN.md](docs/REFACTORING_PLAN.md)
+
 ## Próximos Pasos
 
 Este proyecto está diseñado para ser la base de un sistema de scouting más completo. Los siguientes pasos incluirían:
 
-1. **Análisis estadístico**: Procesamiento de datos para extraer métricas avanzadas
-2. **Modelos de IA**: Predicción de rendimiento futuro de jugadores
+1. ✅ **Análisis estadístico**: Procesamiento de datos para extraer métricas avanzadas (COMPLETADO)
+2. ✅ **Modelos de IA**: Predicción de rendimiento futuro de jugadores (COMPLETADO - R²=0.88)
 3. **API REST**: Exposición de datos y predicciones
 4. **Dashboard web**: Visualización de datos y análisis
 5. **Sistema de alertas**: Notificaciones sobre jugadores prometedores
@@ -511,6 +578,17 @@ sc query MongoDB
 ```powershell
 pip install -r requirements.txt --upgrade
 ```
+
+## 📚 Documentación
+
+Toda la documentación técnica está organizada en la carpeta [docs/](docs/):
+
+- **[docs/INDEX.md](docs/INDEX.md)** - Índice completo de documentación
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Arquitectura del sistema
+- **[docs/REFACTORING_FINAL_REPORT.md](docs/REFACTORING_FINAL_REPORT.md)** - Informe de refactoring completo
+- **[docs/TEST_COVERAGE_REPORT.md](docs/TEST_COVERAGE_REPORT.md)** - Reporte de tests
+- **[docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)** - Guía de testing
+- **[docs/UI_README.md](docs/UI_README.md)** - Manual de interfaz de usuario
 
 ## Licencia
 

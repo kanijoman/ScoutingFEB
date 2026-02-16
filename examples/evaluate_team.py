@@ -28,19 +28,27 @@ import joblib
 import pandas as pd
 import numpy as np
 
+# Get absolute paths
+SCRIPT_DIR = Path(__file__).parent.absolute()
+PROJECT_ROOT = SCRIPT_DIR
+DEFAULT_DB_PATH = PROJECT_ROOT / "scouting_feb.db"
+
 # Ajustar path para imports
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from ml.xgboost_model import PlayerPerformanceModel
 
 
-def train_models_if_needed(db_path: str = "scouting_feb.db", model_dir: str = "models") -> bool:
+def train_models_if_needed(db_path: str = None, model_dir: str = "models") -> bool:
     """
     Entrenar modelos automáticamente si no existen o fallan.
     
     Returns:
         True si los modelos están listos, False si falló
     """
+    if db_path is None:
+        db_path = str(DEFAULT_DB_PATH)
+    
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
     import json
@@ -188,15 +196,26 @@ def train_models_if_needed(db_path: str = "scouting_feb.db", model_dir: str = "m
 class TeamEvaluator:
     """Evaluador de equipos con proyecciones ML."""
     
-    def __init__(self, db_path: str = "scouting_feb.db"):
+    def __init__(self, db_path: str = None):
         """
         Inicializar evaluador.
         
         Args:
             db_path: Ruta a la base de datos SQLite
         """
+        if db_path is None:
+            db_path = str(DEFAULT_DB_PATH)
+        
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        
+        # Verificar que la base de datos existe
+        if not Path(self.db_path).exists():
+            raise FileNotFoundError(
+                f"Database not found: {self.db_path}\n"
+                f"Make sure you're running from the project root: {PROJECT_ROOT}"
+            )
+        
+        self.conn = sqlite3.connect(self.db_path)
         self.model = None
         
         # Intentar entrenar modelos automáticamente si no existen
@@ -633,11 +652,18 @@ def main():
     )
     parser.add_argument('--team', type=str, help='Nombre del equipo (búsqueda parcial)')
     parser.add_argument('--competition', type=str, help='Nombre de competición (búsqueda parcial)')
-    parser.add_argument('--db', default='scouting_feb.db', help='Ruta a base de datos')
+    parser.add_argument('--db', default=str(DEFAULT_DB_PATH), help='Ruta a base de datos')
     
     args = parser.parse_args()
     
-    evaluator = TeamEvaluator(db_path=args.db)
+    try:
+        evaluator = TeamEvaluator(db_path=args.db)
+    except FileNotFoundError as e:
+        print(f"\n❌ {e}")
+        print(f"\n💡 Current directory: {Path.cwd()}")
+        print(f"💡 Expected database: {DEFAULT_DB_PATH}")
+        print(f"\nRun from project root: cd {PROJECT_ROOT}")
+        return
     
     try:
         if args.team:
