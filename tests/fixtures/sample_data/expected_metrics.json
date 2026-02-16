@@ -1,0 +1,33 @@
+{
+  "description": "Expected metrics for validation in sanity tests",
+  "note": "These are approximate ranges, not exact values",
+  "metrics": {
+    "maria_garcia_lopez": {
+      "avg_points": 15.67,
+      "avg_minutes": 28.17,
+      "ts_percentage_range": [0.50, 0.70],
+      "per_range": [15, 25],
+      "usage_rate_range": [0.15, 0.30],
+      "assist_ratio_range": [0.10, 0.25]
+    },
+    "ana_martin_ruiz": {
+      "avg_points": 23.33,
+      "avg_minutes": 31.67,
+      "ts_percentage_range": [0.50, 0.70],
+      "per_range": [20, 35],
+      "usage_rate_range": [0.20, 0.35],
+      "assist_ratio_range": [0.08, 0.18]
+    }
+  },
+  "general_ranges": {
+    "ts_percentage": [0.0, 1.0],
+    "efg_percentage": [0.0, 1.0],
+    "per": [0.0, 50.0],
+    "usage_rate": [0.0, 0.5],
+    "assist_ratio": [0.0, 0.5],
+    "rebound_percentage": [0.0, 0.5],
+    "block_percentage": [0.0, 0.2],
+    "steal_percentage": [0.0, 0.2],
+    "turnover_percentage": [0.0, 0.5]
+  }
+}

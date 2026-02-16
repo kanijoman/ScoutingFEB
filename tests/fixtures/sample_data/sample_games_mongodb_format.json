@@ -1,0 +1,328 @@
+{
+  "games": [
+    {
+      "_id": "game_001",
+      "HEADER": {
+        "game_code": "2024001",
+        "season": "2024-2025",
+        "competition_name": "Liga Femenina",
+        "group": "Liga Regular",
+        "starttime": "2024-09-15 18:00:00",
+        "location": "Pabellón Municipal",
+        "gender": "fem",
+        "TEAM": [
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "pts": 78
+          },
+          {
+            "id": "PERF_AVE",
+            "name": "Perfumerías Avenida",
+            "pts": 72
+          }
+        ]
+      },
+      "BOXSCORE": {
+        "TEAM": [
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "win_lose": "W",
+            "PLAYER": [
+              {
+                "name": "María García López",
+                "number": "7",
+                "position": "Alero",
+                "MIN": "28:30",
+                "PTS": "15",
+                "FGM_FGA": "6/12",
+                "2FGM_2FGA": "5/8",
+                "3FGM_3FGA": "1/4",
+                "FTM_FTA": "2/4",
+                "DREB": "4",
+                "OREB": "2",
+                "TREB": "6",
+                "AS": "3",
+                "STL": "2",
+                "TO": "1",
+                "BLK": "0",
+                "BLK_AG": "1",
+                "FC": "2",
+                "FD": "3",
+                "PIR": "18"
+              },
+              {
+                "name": "Ana Martín Ruiz",
+                "number": "10",
+                "position": "Escolta",
+                "MIN": "32:00",
+                "PTS": "22",
+                "FGM_FGA": "9/18",
+                "2FGM_2FGA": "7/12",
+                "3FGM_3FGA": "2/6",
+                "FTM_FTA": "4/5",
+                "DREB": "3",
+                "OREB": "1",
+                "TREB": "4",
+                "AS": "5",
+                "STL": "1",
+                "TO": "2",
+                "BLK": "1",
+                "BLK_AG": "0",
+                "FC": "1",
+                "FD": "2",
+                "PIR": "24"
+              }
+            ]
+          },
+          {
+            "id": "PERF_AVE",
+            "name": "Perfumerías Avenida",
+            "win_lose": "L",
+            "PLAYER": [
+              {
+                "name": "Laura Pérez Sánchez",
+                "number": "5",
+                "position": "Base",
+                "MIN": "30:00",
+                "PTS": "18",
+                "FGM_FGA": "7/14",
+                "2FGM_2FGA": "5/10",
+                "3FGM_3FGA": "2/4",
+                "FTM_FTA": "2/3",
+                "DREB": "2",
+                "OREB": "0",
+                "TREB": "2",
+                "AS": "6",
+                "STL": "2",
+                "TO": "3",
+                "BLK": "0",
+                "BLK_AG": "1",
+                "FC": "2",
+                "FD": "1",
+                "PIR": "16"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_id": "game_002",
+      "HEADER": {
+        "game_code": "2024002",
+        "season": "2024-2025",
+        "competition_name": "Liga Femenina",
+        "group": "Liga Regular",
+        "starttime": "2024-09-22 18:00:00",
+        "location": "Pabellón Central",
+        "gender": "fem",
+        "TEAM": [
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "pts": 85
+          },
+          {
+            "id": "RIVAL_B",
+            "name": "Rival Team B",
+            "pts": 79
+          }
+        ]
+      },
+      "BOXSCORE": {
+        "TEAM": [
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "win_lose": "W",
+            "PLAYER": [
+              {
+                "name": "María García López",
+                "number": "7",
+                "position": "Alero",
+                "MIN": "30:00",
+                "PTS": "20",
+                "FGM_FGA": "8/15",
+                "2FGM_2FGA": "6/10",
+                "3FGM_3FGA": "2/5",
+                "FTM_FTA": "2/2",
+                "DREB": "5",
+                "OREB": "2",
+                "TREB": "7",
+                "AS": "4",
+                "STL": "3",
+                "TO": "1",
+                "BLK": "1",
+                "BLK_AG": "0",
+                "FC": "1",
+                "FD": "3",
+                "PIR": "25"
+              },
+              {
+                "name": "Ana Martín Ruiz",
+                "number": "10",
+                "position": "Escolta",
+                "MIN": "28:00",
+                "PTS": "17",
+                "FGM_FGA": "6/13",
+                "2FGM_2FGA": "4/8",
+                "3FGM_3FGA": "2/5",
+                "FTM_FTA": "3/4",
+                "DREB": "2",
+                "OREB": "1",
+                "TREB": "3",
+                "AS": "3",
+                "STL": "2",
+                "TO": "2",
+                "BLK": "0",
+                "BLK_AG": "1",
+                "FC": "2",
+                "FD": "4",
+                "PIR": "18"
+              }
+            ]
+          },
+          {
+            "id": "RIVAL_B",
+            "name": "Rival Team B",
+            "win_lose": "L",
+            "PLAYER": [
+              {
+                "name": "Player X",
+                "number": "8",
+                "position": "Base",
+                "MIN": "25:00",
+                "PTS": "12",
+                "FGM_FGA": "5/12",
+                "2FGM_2FGA": "4/8",
+                "3FGM_3FGA": "1/4",
+                "FTM_FTA": "2/2",
+                "DREB": "3",
+                "OREB": "1",
+                "TREB": "4",
+                "AS": "4",
+                "STL": "1",
+                "TO": "2",
+                "BLK": "0",
+                "BLK_AG": "0",
+                "FC": "2",
+                "FD": "2",
+                "PIR": "13"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "_id": "game_003",
+      "HEADER": {
+        "game_code": "2024003",
+        "season": "2024-2025",
+        "competition_name": "Liga Femenina",
+        "group": "Liga Regular",
+        "starttime": "2024-09-29 18:00:00",
+        "location": "Pabellón Sur",
+        "gender": "fem",
+        "TEAM": [
+          {
+            "id": "RIVAL_C",
+            "name": "Rival Team C",
+            "pts": 68
+          },
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "pts": 82
+          }
+        ]
+      },
+      "BOXSCORE": {
+        "TEAM": [
+          {
+            "id": "RIVAL_C",
+            "name": "Rival Team C",
+            "win_lose": "L",
+            "PLAYER": [
+              {
+                "name": "Player Y",
+                "number": "9",
+                "position": "Pivot",
+                "MIN": "22:00",
+                "PTS": "10",
+                "FGM_FGA": "4/9",
+                "2FGM_2FGA": "4/9",
+                "3FGM_3FGA": "0/0",
+                "FTM_FTA": "2/3",
+                "DREB": "6",
+                "OREB": "3",
+                "TREB": "9",
+                "AS": "1",
+                "STL": "0",
+                "TO": "1",
+                "BLK": "2",
+                "BLK_AG": "1",
+                "FC": "3",
+                "FD": "2",
+                "PIR": "15"
+              }
+            ]
+          },
+          {
+            "id": "CB_AVE",
+            "name": "CB Avenida",
+            "win_lose": "W",
+            "PLAYER": [
+              {
+                "name": "María García López",
+                "number": "7",
+                "position": "Alero",
+                "MIN": "27:30",
+                "PTS": "18",
+                "FGM_FGA": "7/14",
+                "2FGM_2FGA": "5/9",
+                "3FGM_3FGA": "2/5",
+                "FTM_FTA": "2/2",
+                "DREB": "4",
+                "OREB": "1",
+                "TREB": "5",
+                "AS": "2",
+                "STL": "2",
+                "TO": "1",
+                "BLK": "0",
+                "BLK_AG": "1",
+                "FC": "2",
+                "FD": "4",
+                "PIR": "20"
+              },
+              {
+                "name": "Ana Martín Ruiz",
+                "number": "10",
+                "position": "Escolta",
+                "MIN": "31:00",
+                "PTS": "25",
+                "FGM_FGA": "10/18",
+                "2FGM_2FGA": "7/11",
+                "3FGM_3FGA": "3/7",
+                "FTM_FTA": "2/3",
+                "DREB": "3",
+                "OREB": "2",
+                "TREB": "5",
+                "AS": "6",
+                "STL": "1",
+                "TO": "2",
+                "BLK": "1",
+                "BLK_AG": "0",
+                "FC": "1",
+                "FD": "3",
+                "PIR": "28"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
