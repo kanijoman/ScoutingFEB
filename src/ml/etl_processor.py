@@ -100,25 +100,51 @@ class FEBDataETL:
         
         collection = self.mongo_db[collection_name]
         
-        # Extraer todos los partidos (sin query de exclusión)
-        # Nota: Filtrar con $nin en listas grandes (>10K) puede fallar
-        # Es más eficiente extraer y filtrar en Python
-        cursor = collection.find({})
-        
-        if limit:
-            cursor = cursor.limit(limit)
-        
-        games = list(cursor)
-        self.logger.info(f"✓ Extraídos {len(games)} partidos desde MongoDB")
-        
-        # Filtrar en Python si hay exclusiones (modo incremental)
-        if exclude_game_ids:
-            # Convertir a strings porque MongoDB almacena game_code como string
+        # Para modo incremental con muchos IDs a excluir, ordenar por _id descendente
+        # y procesar por lotes pequeños hasta encontrar suficientes partidos nuevos
+        if exclude_game_ids and len(exclude_game_ids) > 1000:
+            self.logger.info(f"Modo incremental optimizado: procesando partidos recientes primero...")
             exclude_codes_str = {str(gid) for gid in exclude_game_ids}
-            games_before = len(games)
-            games = [g for g in games if g["HEADER"]["game_code"] not in exclude_codes_str]
-            games_excluded = games_before - len(games)
-            self.logger.info(f"Modo incremental: filtrados {games_excluded} partidos ya procesados, {len(games)} nuevos")
+            
+            # Ordenar por fecha/ID descendente para obtener los más recientes primero
+            cursor = collection.find({}).sort([("_id", -1)])
+            
+            games = []
+            processed = 0
+            batch_size = 500
+            
+            # Procesar en lotes hasta encontrar suficientes nuevos
+            for game in cursor:
+                processed += 1
+                game_code = game["HEADER"]["game_code"]
+                
+                # Si no está en la lista de excluidos, es nuevo
+                if game_code not in exclude_codes_str:
+                    games.append(game)
+                
+                # Parar si ya tenemos suficientes o hemos procesado muchos sin encontrar nuevos
+                if len(games) >= 500 or (processed > 2000 and len(games) > 0):
+                    break
+            
+            self.logger.info(f"✓ Procesados {processed} documentos, encontrados {len(games)} partidos nuevos")
+            
+        else:
+            # Modo normal: extraer todos (para colecciones pequeñas o sin exclusión)
+            cursor = collection.find({})
+            
+            if limit:
+                cursor = cursor.limit(limit)
+            
+            games = list(cursor)
+            self.logger.info(f"✓ Extraídos {len(games)} partidos desde MongoDB")
+            
+            # Filtrar si hay exclusiones
+            if exclude_game_ids:
+                exclude_codes_str = {str(gid) for gid in exclude_game_ids}
+                games_before = len(games)
+                games = [g for g in games if g["HEADER"]["game_code"] not in exclude_codes_str]
+                games_excluded = games_before - len(games)
+                self.logger.info(f"Filtrados {games_excluded} ya procesados, {len(games)} nuevos")
         
         return games
     
@@ -1206,12 +1232,15 @@ class FEBDataETL:
         total_ws = StatsAggregator.calculate_total_win_shares(advanced_stats)
         date_from, date_to = StatsAggregator.extract_date_range(stats)
         
+        # Calculate average age
+        avg_age = StatsAggregator.calculate_average_age(stats)
+        
         # Insert aggregated stats
         cursor.execute(
             AggregationQueryBuilder.get_insert_aggregates_query(),
             (
                 player_id, season, competition_id, games_played,
-                date_from, date_to,
+                date_from, date_to, avg_age,
                 basic_avgs['avg_minutes'], basic_avgs['avg_points'], basic_avgs['avg_fg_pct'],
                 basic_avgs['avg_three_pct'], basic_avgs['avg_ft_pct'],
                 basic_avgs['avg_rebounds'], basic_avgs['avg_assists'], basic_avgs['avg_efficiency'],

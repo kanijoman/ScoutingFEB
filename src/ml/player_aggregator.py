@@ -232,6 +232,29 @@ class StatsAggregator:
             Tuple of (date_from, date_to)
         """
         return stats[0]["game_date"], stats[-1]["game_date"]
+    
+    @staticmethod
+    def calculate_average_age(stats: List[Dict[str, Any]]) -> Optional[float]:
+        """
+        Calculate average age across all games.
+        
+        Args:
+            stats: List of game stats dictionaries or sqlite3.Row objects
+            
+        Returns:
+            Average age or None if age not available
+        """
+        ages = []
+        for s in stats:
+            try:
+                # Try dict access first, then attribute access for Row objects
+                age = s.get("age") if hasattr(s, 'get') else s["age"] if "age" in s.keys() else None
+                if age is not None:
+                    ages.append(age)
+            except (KeyError, IndexError):
+                continue
+        
+        return float(np.mean(ages)) if ages else None
 
 
 class AggregationQueryBuilder:
@@ -262,13 +285,16 @@ class AggregationQueryBuilder:
         """
         Get SQL query for inserting aggregated stats.
         
+        Only inserts core calculated fields. Z-scores, percentiles, and tiers
+        are calculated separately via normalization step.
+        
         Returns:
             SQL query string
         """
         return """
             INSERT OR REPLACE INTO player_aggregated_stats (
                 player_id, season, competition_id, games_played,
-                date_from, date_to,
+                date_from, date_to, avg_age,
                 avg_minutes, avg_points, avg_field_goal_pct,
                 avg_three_point_pct, avg_free_throw_pct,
                 avg_total_rebounds, avg_assists, avg_efficiency,
@@ -280,5 +306,5 @@ class AggregationQueryBuilder:
                 avg_offensive_rebound_pct, avg_defensive_rebound_pct,
                 avg_win_shares_per_36,
                 win_percentage
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
