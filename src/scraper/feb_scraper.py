@@ -4,12 +4,8 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Tuple, Optional
-import sys
-import os
 
-# Add parent directory to path to import utils
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from utils import normalize_year, get_form_field_name, get_event_target
+from ..utils import normalize_year, get_form_field_name, get_event_target
 
 from .constants import (
     BASE_URL, SEASON_DROPDOWN_ID, GROUP_DROPDOWN_ID,
@@ -203,7 +199,7 @@ class FEBWebScraper:
         """
         # Use provided URL or fall back to hardcoded BASE_URL
         if url is None:
-            norm_year = normalize_year(year)
+            norm_year = r(year)
             url = BASE_URL.format(year=norm_year)
 
         # Get initial page
